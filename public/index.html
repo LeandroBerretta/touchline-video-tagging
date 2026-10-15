@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#101512">
+    <title>Touchline — Vimeo video tags</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Touchline home">
+        <span class="brand-mark" aria-hidden="true">T</span>
+        <span>touchline<span class="brand-period">.</span></span>
+      </a>
+      <nav class="tabs" aria-label="Main navigation">
+        <button class="tab-button active" type="button" data-tab="tag" aria-selected="true">Tag videos</button>
+        <button class="tab-button" type="button" data-tab="watch" aria-selected="false">Watch videos</button>
+      </nav>
+      <span class="topbar-note">VIMEO VIDEO TAGGING</span>
+    </header>
+
+    <main class="workspace">
+      <section id="tagPanel" class="tab-panel" aria-label="Tag videos">
+        <section class="intro">
+          <p class="eyebrow">MATCH ANALYSIS</p>
+          <h1>Tag the moments that matter.</h1>
+          <p class="subtitle">Mark a moment while you watch, then add its event type and player names.</p>
+        </section>
+
+        <div class="workspace-layout">
+          <section class="library-card" aria-labelledby="libraryHeading">
+            <div class="library-heading">
+              <div>
+                <p class="eyebrow">SAVED VIDEOS</p>
+                <h2 id="libraryHeading">Your tagging library</h2>
+                <p class="library-note">Saved on this computer in <code>data/app-library/videos.json</code>. Publishing moves an entry to the Published list; it does not publish it on Vimeo.</p>
+              </div>
+              <button id="newVideoButton" class="button button-outline" type="button">＋ New video</button>
+            </div>
+            <div class="library-columns">
+              <section aria-labelledby="inProgressHeading">
+                <h3 id="inProgressHeading">In progress <span id="inProgressCount" class="count-bubble">0</span></h3>
+                <div id="inProgressList" class="saved-video-list"><p class="empty-state">No videos in progress.</p></div>
+              </section>
+              <section aria-labelledby="publishedHeading">
+                <h3 id="publishedHeading">Published <span id="publishedCount" class="count-bubble">0</span></h3>
+                <div id="publishedList" class="saved-video-list"><p class="empty-state">No published videos yet.</p></div>
+              </section>
+            </div>
+          </section>
+
+          <section id="tagger" class="tagger" aria-label="Video and tags">
+            <div class="video-column">
+              <form id="videoForm" class="video-form">
+                <label for="videoName">Video name</label>
+                <input id="videoName" name="videoName" type="text" maxlength="200" placeholder="e.g. VAFC vs Saanich — September 30" required>
+                <label for="videoUrl">Vimeo link</label>
+                <div class="url-controls">
+                  <input id="videoUrl" name="videoUrl" type="url" placeholder="https://vimeo.com/123456789" autocomplete="url" required>
+                  <button id="openVideoButton" class="button button-primary" type="submit">Open video</button>
+                </div>
+                <p class="form-hint">The video must allow embedding. Private share links are supported.</p>
+              </form>
+
+              <div id="notice" class="notice" role="status" aria-live="polite"></div>
+
+              <div id="videoCard" class="video-card" hidden>
+                <div id="videoFrame" class="video-frame"></div>
+              </div>
+            </div>
+
+            <section id="tagsCard" class="tags-card" aria-labelledby="tagsHeading" hidden>
+              <div class="tags-heading">
+                <div>
+                  <p class="eyebrow">THIS VIDEO</p>
+                  <h2 id="tagsHeading">Moments <span id="tagCount" class="count-bubble">0</span></h2>
+                </div>
+                <span id="saveHint" class="save-hint">Not saved yet</span>
+              </div>
+              <button id="markMomentButton" class="button button-primary mark-button" type="button" disabled>
+                Mark moment <kbd>Enter</kbd>
+              </button>
+              <p class="tag-shortcut">Capture a timestamp now, and fill in event details later. Enter works when this page is focused; use the button if the Vimeo player has focus.</p>
+              <ol id="tagList" class="tag-list"></ol>
+              <p id="emptyTags" class="empty-state">No moments yet. Play the video and mark one to get started.</p>
+              <div class="video-actions">
+                <button id="saveVideoButton" class="button button-outline" type="button" disabled>Save</button>
+                <button id="publishVideoButton" class="button button-primary" type="button" disabled>Publish video</button>
+              </div>
+            </section>
+          </section>
+        </div>
+      </section>
+
+      <section id="watchPanel" class="tab-panel watch-panel" aria-labelledby="watchHeading" hidden>
+        <div class="watch-heading">
+          <div>
+            <p class="eyebrow">PUBLISHED VIDEOS</p>
+            <h1 id="watchHeading">Watch a match</h1>
+            <p class="subtitle">Choose a published video to watch from the beginning or jump to a tagged moment.</p>
+          </div>
+          <label class="watch-select-label" for="watchVideoSelect">
+            SELECT VIDEO
+            <select id="watchVideoSelect">
+              <option value="">Choose a published video…</option>
+            </select>
+          </label>
+        </div>
+        <div id="watchNotice" class="notice" role="status" aria-live="polite"></div>
+        <div id="watchEmpty" class="watch-empty">
+          <span class="play-emblem" aria-hidden="true">▶</span>
+          <h2>No published video selected</h2>
+          <p>Choose a published video above, or publish one from the Tag videos tab.</p>
+        </div>
+        <div id="watchWorkspace" class="watch-workspace" hidden>
+          <section class="watch-player-card" aria-labelledby="watchVideoTitle">
+            <div class="watch-player-heading">
+              <div>
+                <p class="eyebrow">NOW WATCHING</p>
+                <h2 id="watchVideoTitle"></h2>
+              </div>
+              <button id="watchWholeVideoButton" class="button button-primary" type="button" disabled>Watch whole video</button>
+            </div>
+            <div id="watchVideoFrame" class="video-frame"></div>
+          </section>
+          <section class="watch-events-card" aria-labelledby="watchEventsHeading">
+            <div class="watch-events-heading">
+              <div>
+                <p class="eyebrow">TAGGED MOMENTS</p>
+                <h2 id="watchEventsHeading">Events <span id="watchEventCount" class="count-bubble">0</span></h2>
+              </div>
+            </div>
+            <p class="watch-events-hint">Select an event to play from its timestamp.</p>
+            <ol id="watchEventList" class="watch-event-list"></ol>
+            <p id="watchNoEvents" class="empty-state">This video has no tagged events yet.</p>
+          </section>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

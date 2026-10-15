@@ -1,0 +1,18 @@
+services:
+  web:
+    build:
+      context: .
+      target: development
+    init: true
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      APP_DATA_DIR: /app-data
+      HOST: 0.0.0.0
+    volumes:
+      - .:/workspace
+      - node_modules:/workspace/node_modules
+      - ./data/app-library:/app-data
+
+volumes:
+  node_modules:
