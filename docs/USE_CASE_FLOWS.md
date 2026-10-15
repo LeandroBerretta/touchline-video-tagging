@@ -85,8 +85,12 @@ flowchart TD
 
 Notes:
 
-- Enter only works when the page has focus. After clicking inside the Vimeo
-  player, the admin clicks Mark moment instead.
+- Keyboard: Enter marks, Space plays or pauses, ← and → jump 5 seconds. Keys
+  only work while the page has focus, so playback has its own controls under
+  the video; clicking inside the Vimeo picture hands the keyboard to Vimeo.
+- Full screen (under the video) fills the screen with the video and the
+  moments list together. Vimeo's own full screen is disabled in this view
+  because it would hide the tagging controls. Hide library widens the video.
 - The mark offset (0, 3, 5 or 10 seconds earlier) is remembered in this browser.
 - Clicking a moment's timestamp plays the video from that point.
 - Player-name suggestions come from names already used in the library.

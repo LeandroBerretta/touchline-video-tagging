@@ -64,8 +64,8 @@
           <p class="subtitle">Mark a moment while you watch, then add its event type and player names.</p>
         </section>
 
-        <div class="workspace-layout">
-          <section class="library-card" aria-labelledby="libraryHeading">
+        <div id="tagLayout" class="workspace-layout">
+          <section id="libraryCard" class="library-card" aria-labelledby="libraryHeading">
             <div class="library-heading">
               <div>
                 <p class="eyebrow">SAVED VIDEOS</p>
@@ -88,6 +88,9 @@
 
           <section id="tagger" class="tagger" aria-label="Video and tags">
             <div class="video-column">
+              <div class="column-tools">
+                <button id="toggleLibraryButton" class="link-button" type="button" aria-controls="libraryCard" aria-expanded="true">Hide library</button>
+              </div>
               <form id="videoForm" class="video-form">
                 <label for="videoName">Video name</label>
                 <input id="videoName" name="videoName" type="text" maxlength="200" placeholder="e.g. VAFC vs Saanich — September 30" required>
@@ -103,6 +106,13 @@
 
               <div id="videoCard" class="video-card" hidden>
                 <div id="videoFrame" class="video-frame"></div>
+                <div class="player-bar" role="group" aria-label="Video controls">
+                  <button id="rewindButton" class="player-button" type="button" aria-label="Back 5 seconds" title="Back 5 seconds (←)" disabled>« 5 s</button>
+                  <button id="playPauseButton" class="player-button player-button-main" type="button" title="Play or pause (Space)" disabled>Play</button>
+                  <button id="forwardButton" class="player-button" type="button" aria-label="Forward 5 seconds" title="Forward 5 seconds (→)" disabled>5 s »</button>
+                  <span id="playerClock" class="player-clock" aria-live="off">00:00</span>
+                  <button id="tagFullscreenButton" class="player-button" type="button" title="Video and moments together on the whole screen" disabled>Full screen</button>
+                </div>
               </div>
             </div>
 
@@ -129,7 +139,7 @@
                   </select>
                 </label>
               </div>
-              <p class="tag-shortcut">Mark now, add the details later. Enter only works when this page has focus. After you click inside the video, use the button.</p>
+              <p class="tag-shortcut">Mark now, add the details later. Keys: <kbd>Enter</kbd> mark, <kbd>Space</kbd> play/pause, <kbd>←</kbd> <kbd>→</kbd> 5 seconds. Keys stop working after you click inside the video itself, so use the controls under it.</p>
               <ol id="tagList" class="tag-list" aria-labelledby="tagsHeading"></ol>
               <p id="emptyTags" class="empty-state">No moments yet. Play the video and mark one to get started.</p>
               <div class="video-actions">
@@ -169,7 +179,10 @@
                 <p class="eyebrow">NOW WATCHING</p>
                 <h2 id="watchVideoTitle"></h2>
               </div>
-              <button id="watchWholeVideoButton" class="button button-primary" type="button" disabled>Watch whole video</button>
+              <div class="watch-player-actions">
+                <button id="watchFullscreenButton" class="button button-outline" type="button" title="Video and events together on the whole screen" disabled>Full screen</button>
+                <button id="watchWholeVideoButton" class="button button-primary" type="button" disabled>Watch whole video</button>
+              </div>
             </div>
             <div id="watchVideoFrame" class="video-frame"></div>
           </section>

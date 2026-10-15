@@ -38,6 +38,8 @@ const eventTypes = [
 const quickEventTypes = ["pass", "shot_on_target", "shot_off_target", "tackle", "foul", "goal"];
 const markOffsetChoices = [0, 3, 5, 10];
 const markOffsetStorageKey = "touchline.markOffsetSeconds";
+const libraryHiddenStorageKey = "touchline.libraryHidden";
+const seekStepSeconds = 5;
 // Watch playback starts a little before each moment so viewers see the build-up.
 const watchLeadSeconds = 3;
 const errorMessages = [
@@ -63,6 +65,7 @@ const state = {
   records: [],
   tags: [],
   playerReady: false,
+  videoDuration: 0,
   isDirty: false,
   isSaving: false,
   role: null,
@@ -99,6 +102,7 @@ function friendlyError(error) {
 
 function setTab(tab) {
   if (state.role === "viewer" && tab !== "watch") tab = "watch";
+  exitStage();
   state.activeTab = tab;
   for (const button of document.querySelectorAll(".tab-button")) {
     const active = button.dataset.tab === tab;
@@ -201,6 +205,9 @@ function refreshActions() {
   $("#publishVideoButton").disabled = !canSave || incomplete > 0 || (isPublished && !state.isDirty);
   $("#publishVideoButton").textContent = isPublished ? "Re-publish changes" : "Publish video";
   $("#markMomentButton").disabled = !isAdmin || !state.playerReady || state.isSaving;
+  for (const selector of ["#rewindButton", "#playPauseButton", "#forwardButton", "#tagFullscreenButton"]) {
+    $(selector).disabled = !state.playerReady;
+  }
   $("#actionHint").textContent = actionHint(incomplete, isPublished);
   $("#tagCount").textContent = state.tags.length;
   $("#incompleteCount").textContent = incomplete ? `${incomplete} need${incomplete === 1 ? "s" : ""} a type` : "";
@@ -451,7 +458,9 @@ async function selectWatchVideo(recordId) {
 
   $("#watchVideoFrame").replaceChildren();
   $("#watchWholeVideoButton").disabled = true;
+  $("#watchFullscreenButton").disabled = true;
   if (!record) {
+    exitStage();
     $("#watchWorkspace").hidden = true;
     $("#watchEmpty").hidden = false;
     return;
@@ -493,6 +502,7 @@ async function selectWatchVideo(recordId) {
       return;
     }
     $("#watchWholeVideoButton").disabled = false;
+    $("#watchFullscreenButton").disabled = false;
     document.querySelectorAll(".watch-event").forEach((button) => { button.disabled = false; });
     notifyWatch(`${record.title} is ready. Choose a moment or watch the whole video.`, "success");
   } catch (error) {
@@ -679,7 +689,10 @@ async function markMoment() {
     state.tags = [...state.tags, tag].sort(byTime);
     setDirty();
     renderTags();
-    document.querySelector(`[data-tag-id="${tag.id}"]`)?.classList.add("just-added");
+    const row = document.querySelector(`[data-tag-id="${tag.id}"]`);
+    row?.classList.add("just-added");
+    // In full screen the moments panel scrolls on its own, so bring the new row into view there.
+    if ($("#tagger").classList.contains("stage-mode")) row?.scrollIntoView({ block: "nearest" });
     notify(`Moment marked at ${formatTime(timestampSeconds)}${offset ? ` (${offset} seconds before you pressed)` : ""}. Pick its event type in the list.`, "success");
   } catch (error) {
     notify(`Could not capture the current video time: ${error.message}`, "error");
@@ -700,6 +713,66 @@ function loadVimeoSdk() {
     script.onerror = () => reject(new Error("Could not load Vimeo's player tools. Check your internet connection."));
     if (!existingScript) document.head.append(script);
   });
+}
+
+function seekBy(deltaSeconds) {
+  if (!state.player || !state.playerReady) return;
+  state.player.getCurrentTime()
+    .then((seconds) => state.player.setCurrentTime(Math.max(0, seconds + deltaSeconds)))
+    .catch((error) => notify(`Could not move the video: ${error.message}`, "error"));
+}
+
+function togglePlay() {
+  if (!state.player || !state.playerReady) return;
+  state.player.getPaused()
+    .then((paused) => paused ? state.player.play() : state.player.pause())
+    .catch((error) => notify(`Could not start or pause the video: ${error.message}`, "error"));
+}
+
+function setPlayingLabel(playing) {
+  $("#playPauseButton").textContent = playing ? "Pause" : "Play";
+}
+
+function updatePlayerClock(seconds) {
+  $("#playerClock").textContent = state.videoDuration
+    ? `${formatTime(seconds)} / ${formatTime(state.videoDuration)}`
+    : formatTime(seconds);
+}
+
+// "Stage" is Touchline's own full screen: the video plus its controls, so buttons stay reachable.
+// It uses the browser's full screen where available and a full-window view otherwise (e.g. iPhone).
+const stageElements = () => [$("#tagger"), $("#watchWorkspace")];
+
+function setStageMode(element, active) {
+  element.classList.toggle("stage-mode", active);
+  document.body.classList.toggle("stage-open", stageElements().some((item) => item.classList.contains("stage-mode")));
+  $("#tagFullscreenButton").textContent = $("#tagger").classList.contains("stage-mode") ? "Exit full screen" : "Full screen";
+  $("#watchFullscreenButton").textContent = $("#watchWorkspace").classList.contains("stage-mode") ? "Exit full screen" : "Full screen";
+}
+
+async function toggleStage(element) {
+  const active = element.classList.contains("stage-mode");
+  if (document.fullscreenEnabled) {
+    try {
+      if (active) await document.exitFullscreen();
+      else await element.requestFullscreen();
+      return;
+    } catch (error) {
+      console.warn("Browser full screen is unavailable; using the full-window view instead.", error);
+    }
+  }
+  setStageMode(element, !active);
+}
+
+function exitStage() {
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  for (const element of stageElements()) setStageMode(element, false);
+}
+
+function setLibraryHidden(hidden) {
+  $("#tagLayout").classList.toggle("library-hidden", hidden);
+  $("#toggleLibraryButton").textContent = hidden ? "Show library" : "Hide library";
+  $("#toggleLibraryButton").setAttribute("aria-expanded", String(!hidden));
 }
 
 function confirmDiscard() {
@@ -737,17 +810,22 @@ async function openVideo(value, record = null) {
   };
   state.isDirty = false;
   state.player = null;
+  state.videoDuration = 0;
   setPlayerReady(false);
+  setPlayingLabel(false);
+  updatePlayerClock(0);
   $("#saveHint").textContent = record ? `Saved ${record.status === "published" ? "as published" : "in progress"}` : "Not saved yet";
   renderTags();
   renderLibrary();
+  $("#tagPanel").classList.add("has-video");
   $("#videoCard").hidden = false;
   $("#tagsCard").hidden = false;
   notify("Loading Vimeo video…");
 
   const frame = document.createElement("iframe");
   frame.title = "Vimeo video";
-  frame.allow = "autoplay; fullscreen; picture-in-picture; encrypted-media";
+  // No "fullscreen" permission: Vimeo's own full screen would hide the tagging controls, so Touchline offers its own.
+  frame.allow = "autoplay; picture-in-picture; encrypted-media";
   const embedUrl = new URL(`https://player.vimeo.com/video/${video.id}`);
   if (video.hash) embedUrl.searchParams.set("h", video.hash);
   frame.src = embedUrl.href;
@@ -759,13 +837,19 @@ async function openVideo(value, record = null) {
     state.player.on("error", (error) => {
       notify(`Vimeo player error: ${error.message || "The video could not be played."}`, "error");
     });
+    state.player.on("play", () => setPlayingLabel(true));
+    state.player.on("pause", () => setPlayingLabel(false));
+    state.player.on("ended", () => setPlayingLabel(false));
+    state.player.on("timeupdate", ({ seconds }) => updatePlayerClock(seconds));
     await state.player.ready();
+    state.videoDuration = await state.player.getDuration().catch(() => 0);
+    updatePlayerClock(0);
     setPlayerReady(true);
     notify(record
       ? record.status === "published"
         ? `Opened ${record.title}. It is published: viewers see your edits once you re-publish.`
         : `Opened ${record.title}. Save your progress or publish when every moment has a type.`
-      : "Video ready. Press Enter or use Mark moment while you watch.", "success");
+      : "Video ready. Use the controls under the video, and press Enter or Mark moment when something happens.", "success");
   } catch (error) {
     state.player = null;
     setPlayerReady(false);
@@ -877,7 +961,9 @@ async function startNewVideo() {
   state.activeRecord = null;
   state.tags = [];
   state.isDirty = false;
+  exitStage();
   setPlayerReady(false);
+  $("#tagPanel").classList.remove("has-video");
   $("#videoName").value = "";
   $("#videoUrl").value = "";
   $("#videoFrame").replaceChildren();
@@ -909,6 +995,8 @@ async function activateSession(session) {
     state.isDirty = false;
     state.selectedWatchId = "";
     state.isSaving = false;
+    exitStage();
+    $("#tagPanel").classList.remove("has-video");
     $("#loginPanel").hidden = false;
     $("#appShell").hidden = true;
     $("#appTabs").hidden = true;
@@ -1115,15 +1203,61 @@ $("#markOffset").addEventListener("change", () => {
   }
 });
 
+$("#rewindButton").addEventListener("click", () => seekBy(-seekStepSeconds));
+$("#forwardButton").addEventListener("click", () => seekBy(seekStepSeconds));
+$("#playPauseButton").addEventListener("click", togglePlay);
+$("#tagFullscreenButton").addEventListener("click", () => toggleStage($("#tagger")));
+$("#watchFullscreenButton").addEventListener("click", () => toggleStage($("#watchWorkspace")));
+document.addEventListener("fullscreenchange", () => {
+  for (const element of stageElements()) setStageMode(element, document.fullscreenElement === element);
+});
+// Clicking these buttons must not take keyboard focus, or the next Enter/Space would press them again
+// instead of marking a moment or pausing. Keyboard users can still Tab to them.
+for (const selector of ["#markMomentButton", "#rewindButton", "#playPauseButton", "#forwardButton", "#tagFullscreenButton"]) {
+  $(selector).addEventListener("mousedown", (event) => event.preventDefault());
+}
+
+try {
+  setLibraryHidden(window.localStorage.getItem(libraryHiddenStorageKey) === "true");
+} catch {
+  setLibraryHidden(false);
+}
+$("#toggleLibraryButton").addEventListener("click", () => {
+  const hidden = !$("#tagLayout").classList.contains("library-hidden");
+  setLibraryHidden(hidden);
+  try {
+    window.localStorage.setItem(libraryHiddenStorageKey, String(hidden));
+  } catch {
+    // Remembering the choice is a convenience only.
+  }
+});
+
 window.addEventListener("keydown", (event) => {
+  // The full-window fallback has no browser Esc handling, so provide it.
+  if (event.key === "Escape" && !document.fullscreenElement && document.body.classList.contains("stage-open")) {
+    exitStage();
+    return;
+  }
   if (state.role !== "admin" || state.activeTab !== "tag" || $("#passwordDialog").open) return;
-  if (event.key !== "Enter" || event.repeat || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+  if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
   const target = event.target;
   if (target instanceof HTMLElement && (
-    target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(target.tagName)
+    target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)
   )) return;
+  const onButton = target instanceof HTMLElement && target.tagName === "BUTTON";
+  const actions = {
+    Enter: () => markMoment(),
+    " ": () => togglePlay(),
+    ArrowLeft: () => seekBy(-seekStepSeconds),
+    ArrowRight: () => seekBy(seekStepSeconds),
+  };
+  const action = actions[event.key];
+  if (!action) return;
+  // Enter and Space on a focused button should press that button, as usual.
+  if (onButton && (event.key === "Enter" || event.key === " ")) return;
+  if (event.repeat && (event.key === "Enter" || event.key === " ")) return;
   event.preventDefault();
-  markMoment();
+  action();
 });
 
 if (!supabase) {
