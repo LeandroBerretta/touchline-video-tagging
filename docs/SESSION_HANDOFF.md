@@ -7,9 +7,9 @@ This note captures the current state of the Touchline app, the decisions that ma
 ## Project and working folders
 
 - GitHub repository: `LeandroBerretta/touchline-video-tagging`
-- Local workspace: `C:\Users\TeamLeandro\OneDrive\Desktop\MyProjects\repo\touchline-video-tagging`
-- Earlier source folder: `C:\Users\TeamLeandro\OneDrive\Desktop\MyProjects\repo\MySportsAnalyzer`
-- Use the clone above for any future GitHub work. Do not assume the source folder and the clone stay in sync.
+- Local workspace: the `touchline-video-tagging` clone.
+- Earlier source folder: a separate local `MySportsAnalyzer` project next to the clone.
+- Use the clone for any future GitHub work. Do not assume the source folder and the clone stay in sync.
 - The repository currently sits on `main` and contains the current app implementation, not a copy of the original local JSON project.
 
 ## Product direction
