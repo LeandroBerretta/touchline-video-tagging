@@ -4,3 +4,4 @@ data/app-library/
 .env
 .env.*
 !.env.example
+/public/config.js

@@ -5,23 +5,58 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#101512">
     <title>Touchline — Vimeo video tags</title>
-    <link rel="stylesheet" href="/styles.css">
-    <script type="module" src="/app.js"></script>
+    <link rel="stylesheet" href="./styles.css">
+    <script src="./config.js"></script>
+    <script type="module" src="./app.js"></script>
   </head>
   <body>
     <header class="topbar">
-      <a class="brand" href="/" aria-label="Touchline home">
+      <a class="brand" href="./" aria-label="Touchline home">
         <span class="brand-mark" aria-hidden="true">T</span>
         <span>touchline<span class="brand-period">.</span></span>
       </a>
-      <nav class="tabs" aria-label="Main navigation">
+      <nav id="appTabs" class="tabs" aria-label="Main navigation" hidden>
         <button class="tab-button active" type="button" data-tab="tag" aria-selected="true">Tag videos</button>
         <button class="tab-button" type="button" data-tab="watch" aria-selected="false">Watch videos</button>
       </nav>
-      <span class="topbar-note">VIMEO VIDEO TAGGING</span>
+      <span id="signedInLabel" class="topbar-note"></span>
+      <button id="signOutButton" class="button button-outline sign-out-button" type="button" hidden>Sign out</button>
     </header>
 
     <main class="workspace">
+      <section id="loginPanel" class="login-card" aria-labelledby="loginHeading">
+        <p class="eyebrow">TOUCHLINE VIDEO TAGGING</p>
+        <h1 id="loginHeading">Sign in</h1>
+        <p class="subtitle">Sign in to manage videos or watch published matches.</p>
+        <form id="loginForm" class="login-form">
+          <label for="loginEmail">Email</label>
+          <input id="loginEmail" name="email" type="email" autocomplete="username" required>
+          <label for="loginPassword">Password</label>
+          <input id="loginPassword" name="password" type="password" autocomplete="current-password" required>
+          <button id="loginButton" class="button button-primary" type="submit">Sign in</button>
+        </form>
+        <button id="forgotPasswordButton" class="link-button" type="button">Forgot password?</button>
+        <p id="loginNotice" class="notice" role="status" aria-live="polite"></p>
+      </section>
+
+      <dialog id="passwordDialog" class="password-dialog" aria-labelledby="passwordHeading">
+        <form id="passwordForm" class="login-form">
+          <h2 id="passwordHeading">Choose a new password</h2>
+          <label for="newPassword">New password</label>
+          <input id="newPassword" name="newPassword" type="password" autocomplete="new-password" minlength="8" required>
+          <label for="confirmPassword">Repeat new password</label>
+          <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required>
+          <p id="passwordNotice" class="notice error" role="alert"></p>
+          <div class="dialog-actions">
+            <button id="cancelPasswordButton" class="button button-outline" type="button">Cancel</button>
+            <button id="savePasswordButton" class="button button-primary" type="submit">Save password</button>
+          </div>
+        </form>
+      </dialog>
+
+      <datalist id="playerNameOptions"></datalist>
+
+      <div id="appShell" hidden>
       <section id="tagPanel" class="tab-panel" aria-label="Tag videos">
         <section class="intro">
           <p class="eyebrow">MATCH ANALYSIS</p>
@@ -35,7 +70,7 @@
               <div>
                 <p class="eyebrow">SAVED VIDEOS</p>
                 <h2 id="libraryHeading">Your tagging library</h2>
-                <p class="library-note">Saved on this computer in <code>data/app-library/videos.json</code>. Publishing moves an entry to the Published list; it does not publish it on Vimeo.</p>
+                <p class="library-note">Saved securely in the Touchline cloud library. Publishing moves an entry to the Published list; it does not publish it on Vimeo.</p>
               </div>
               <button id="newVideoButton" class="button button-outline" type="button">＋ New video</button>
             </div>
@@ -76,17 +111,30 @@
                 <div>
                   <p class="eyebrow">THIS VIDEO</p>
                   <h2 id="tagsHeading">Moments <span id="tagCount" class="count-bubble">0</span></h2>
+                  <p id="incompleteCount" class="incomplete-count" hidden></p>
                 </div>
-                <span id="saveHint" class="save-hint">Not saved yet</span>
+                <span id="saveHint" class="save-hint" role="status">Not saved yet</span>
               </div>
-              <button id="markMomentButton" class="button button-primary mark-button" type="button" disabled>
-                Mark moment <kbd>Enter</kbd>
-              </button>
-              <p class="tag-shortcut">Capture a timestamp now, and fill in event details later. Enter works when this page is focused; use the button if the Vimeo player has focus.</p>
-              <ol id="tagList" class="tag-list"></ol>
+              <div class="mark-controls">
+                <button id="markMomentButton" class="button button-primary mark-button" type="button" disabled>
+                  Mark moment <kbd>Enter</kbd>
+                </button>
+                <label class="mark-offset-label" for="markOffset">
+                  Mark
+                  <select id="markOffset">
+                    <option value="0">at the current time</option>
+                    <option value="3" selected>3 seconds earlier</option>
+                    <option value="5">5 seconds earlier</option>
+                    <option value="10">10 seconds earlier</option>
+                  </select>
+                </label>
+              </div>
+              <p class="tag-shortcut">Mark now, add the details later. Enter only works when this page has focus. After you click inside the video, use the button.</p>
+              <ol id="tagList" class="tag-list" aria-labelledby="tagsHeading"></ol>
               <p id="emptyTags" class="empty-state">No moments yet. Play the video and mark one to get started.</p>
               <div class="video-actions">
-                <button id="saveVideoButton" class="button button-outline" type="button" disabled>Save</button>
+                <p id="actionHint" class="action-hint" aria-live="polite"></p>
+                <button id="saveVideoButton" class="button button-outline" type="button" disabled>Save progress</button>
                 <button id="publishVideoButton" class="button button-primary" type="button" disabled>Publish video</button>
               </div>
             </section>
@@ -132,12 +180,21 @@
                 <h2 id="watchEventsHeading">Events <span id="watchEventCount" class="count-bubble">0</span></h2>
               </div>
             </div>
-            <p class="watch-events-hint">Select an event to play from its timestamp.</p>
+            <p class="watch-events-hint">Select an event to play it, starting a few seconds before the moment.</p>
+            <div id="watchFilters" class="watch-filters" hidden>
+              <label for="watchTypeFilter">Event type</label>
+              <select id="watchTypeFilter">
+                <option value="">All event types</option>
+              </select>
+              <label for="watchPlayerFilter">Player</label>
+              <input id="watchPlayerFilter" type="search" list="playerNameOptions" placeholder="Filter by player name" autocomplete="off">
+            </div>
             <ol id="watchEventList" class="watch-event-list"></ol>
             <p id="watchNoEvents" class="empty-state">This video has no tagged events yet.</p>
           </section>
         </div>
       </section>
+      </div>
     </main>
   </body>
 </html>
