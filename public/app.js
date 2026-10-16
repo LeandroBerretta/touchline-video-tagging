@@ -1551,43 +1551,49 @@ function setLoginNotice(message, kind = "") {
   $("#loginNotice").className = `notice ${kind}`.trim();
 }
 
-async function activateSession(session) {
-  // Supabase re-reports the same session on token refresh, tab focus, and sign-in; only react when the user changes.
-  const userId = session?.user.id ?? null;
-  if (userId === state.sessionUserId) return;
-  state.sessionUserId = userId;
+// Puts the page back on the sign-in card. Safe to call more than once.
+function showSignedOut() {
+  state.sessionUserId = null;
+  state.role = null;
+  state.records = [];
+  state.activeRecord = null;
+  state.tags = [];
+  state.isDirty = false;
+  state.selectedWatchId = "";
+  state.watchReady = false;
+  state.playlist = null;
+  state.isSaving = false;
+  exitStage();
+  $("#tagPanel").classList.remove("has-video");
+  $("#loginPanel").hidden = false;
+  $("#appShell").hidden = true;
+  $("#appTabs").hidden = true;
+  $("#signOutButton").hidden = true;
+  $("#signedInLabel").textContent = "";
+  if (state.player) state.player.destroy().catch((error) => console.error("Could not close the Vimeo player:", error));
+  if (state.watchPlayer) state.watchPlayer.destroy().catch((error) => console.error("Could not close the watch player:", error));
+  state.player = null;
+  state.watchPlayer = null;
+  state.video = null;
+  setPlayerReady(false);
+  $("#videoFrame").replaceChildren();
+  $("#watchVideoFrame").replaceChildren();
+  $("#videoCard").hidden = true;
+  $("#tagsCard").hidden = true;
+  $("#watchWorkspace").hidden = true;
+  $("#watchEmpty").hidden = false;
+  $("#loginPassword").value = "";
+}
 
+async function activateSession(session) {
+  // Signing out always resets the page, whatever happened before.
   if (!session) {
-    state.role = null;
-    state.records = [];
-    state.activeRecord = null;
-    state.tags = [];
-    state.isDirty = false;
-    state.selectedWatchId = "";
-    state.watchReady = false;
-    state.playlist = null;
-    state.isSaving = false;
-    exitStage();
-    $("#tagPanel").classList.remove("has-video");
-    $("#loginPanel").hidden = false;
-    $("#appShell").hidden = true;
-    $("#appTabs").hidden = true;
-    $("#signOutButton").hidden = true;
-    $("#signedInLabel").textContent = "";
-    if (state.player) state.player.destroy().catch((error) => console.error("Could not close the Vimeo player:", error));
-    if (state.watchPlayer) state.watchPlayer.destroy().catch((error) => console.error("Could not close the watch player:", error));
-    state.player = null;
-    state.watchPlayer = null;
-    state.video = null;
-    setPlayerReady(false);
-    $("#videoFrame").replaceChildren();
-    $("#watchVideoFrame").replaceChildren();
-    $("#videoCard").hidden = true;
-    $("#tagsCard").hidden = true;
-    $("#watchWorkspace").hidden = true;
-    $("#watchEmpty").hidden = false;
+    showSignedOut();
     return;
   }
+  // Supabase re-reports the same session on token refresh, tab focus, and sign-in; only react when the user changes.
+  if (session.user.id === state.sessionUserId) return;
+  state.sessionUserId = session.user.id;
 
   const { data: userRole, error } = await supabase
     .from("app_users")
@@ -1599,7 +1605,7 @@ async function activateSession(session) {
     throw error;
   }
   if (!userRole || !["admin", "viewer"].includes(userRole.role)) {
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "local" });
     setLoginNotice("This account does not have an app role. Ask the administrator to assign one.", "error");
     return;
   }
@@ -1705,13 +1711,33 @@ $("#cancelPasswordButton").addEventListener("click", () => {
   $("#passwordDialog").close();
 });
 
+// Removes Supabase's saved sign-in from this browser, for when the sign-out request itself fails.
+function forgetStoredSession() {
+  try {
+    for (const key of Object.keys(window.localStorage)) {
+      if (key.startsWith("sb-") && key.endsWith("-auth-token")) window.localStorage.removeItem(key);
+    }
+  } catch {
+    // Storage unavailable: nothing was saved there either.
+  }
+}
+
 $("#signOutButton").addEventListener("click", async () => {
   if (!confirmDiscard()) return;
-  const { error } = await supabase.auth.signOut();
-  if (error) {
-    notify(`Could not sign out: ${friendlyError(error)}`, "error");
-    return;
+  const button = $("#signOutButton");
+  button.disabled = true;
+  state.isDirty = false;
+  try {
+    // "local" signs out this browser only, so people sharing the viewer account stay signed in elsewhere.
+    const { error } = await supabase.auth.signOut({ scope: "local" });
+    if (error) throw error;
+  } catch (error) {
+    console.warn("Supabase sign-out failed; clearing the saved sign-in in this browser instead.", error);
+    forgetStoredSession();
   }
+  // Always leave the app, even if Supabase could not be reached.
+  showSignedOut();
+  button.disabled = false;
   setLoginNotice("Signed out.", "success");
 });
 
