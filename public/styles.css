@@ -70,6 +70,7 @@ h2 { margin: 0; font-size: 19px; }
 .saved-video-item.active .saved-video { border-color: var(--green); background: #1e2b1d; box-shadow: inset 3px 0 0 var(--green); }
 .saved-video strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .saved-video span { color: var(--soft); font-size: 12px; }
+.saved-video-actions { display: grid; align-content: center; gap: 2px; }
 .remove-video { align-self: center; min-height: 36px; border: 1px solid transparent; border-radius: 5px; padding: 6px 8px; color: #c4aaa6; background: transparent; cursor: pointer; font-size: 12px; }
 .remove-video:hover { border-color: #633835; color: #ff9b94; background: #321e1c; }
 .saved-video-list .empty-state { margin: 0; border: 1px dashed #2b3730; border-radius: 7px; padding: 10px 12px; font-size: 13px; }

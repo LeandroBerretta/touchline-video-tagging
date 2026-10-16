@@ -224,6 +224,8 @@ function refreshActions() {
   const incomplete = state.tags.filter((tag) => !isComplete(tag)).length;
   const canSave = isAdmin && !!state.activeRecord && state.playerReady && !state.isSaving;
   $("#saveVideoButton").hidden = isPublished;
+  $("#unpublishVideoButton").hidden = !isPublished;
+  $("#unpublishVideoButton").disabled = !canSave;
   $("#saveVideoButton").disabled = !canSave || !state.isDirty;
   $("#publishVideoButton").disabled = !canSave || (isPublished && !state.isDirty);
   $("#publishVideoButton").textContent = isPublished ? "Re-publish changes" : "Publish video";
@@ -286,7 +288,19 @@ function renderLibrary() {
         removeButton.textContent = "Remove";
         removeButton.setAttribute("aria-label", `Remove ${record.title} from the library`);
         removeButton.addEventListener("click", () => removeVideo(record));
-        item.append(button, removeButton);
+        const actions = document.createElement("div");
+        actions.className = "saved-video-actions";
+        if (record.status === "published") {
+          const unpublishButton = document.createElement("button");
+          unpublishButton.type = "button";
+          unpublishButton.className = "remove-video";
+          unpublishButton.textContent = "Unpublish";
+          unpublishButton.setAttribute("aria-label", `Unpublish ${record.title}`);
+          unpublishButton.addEventListener("click", () => unpublishRecord(record));
+          actions.append(unpublishButton);
+        }
+        actions.append(removeButton);
+        item.append(button, actions);
       } else {
         item.append(button);
       }
@@ -364,6 +378,29 @@ async function removeVideo(record) {
     notify(`"${record.title}" was removed from the library.`, "success");
   } catch (error) {
     notify(`Could not remove "${record.title}": ${friendlyError(error)}`, "error");
+  }
+}
+
+async function unpublishRecord(record) {
+  // The open video goes through the editor's own flow so its buttons and unsaved edits stay consistent.
+  if (state.activeRecord?.id === record.id) {
+    await saveVideo("unpublish");
+    return;
+  }
+  if (!window.confirm(`Unpublish "${record.title}"? Viewers will no longer see it, and it moves back to In progress.`)) return;
+  try {
+    const { data, error } = await supabase
+      .from("videos")
+      .update({ status: "in_progress", published_at: null, updated_at: new Date().toISOString() })
+      .eq("id", record.id)
+      .select("id")
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("Video was not found or you do not have permission to change it.");
+    await loadLibrary();
+    notify(`"${record.title}" is unpublished. Viewers can no longer see it.`, "success");
+  } catch (error) {
+    notify(`Could not unpublish "${record.title}": ${friendlyError(error)}`, "error");
   }
 }
 
@@ -1140,7 +1177,7 @@ async function openVideo(value, record = null) {
     notify(record
       ? record.status === "published"
         ? `Opened ${record.title}. It is published: viewers see your edits once you re-publish.`
-        : `Opened ${record.title}. Save your progress or publish when every moment has a type.`
+        : `Opened ${record.title}. Save your progress, or publish it when you're ready.`
       : "Video ready. Use the controls under the video, and press Enter or Mark moment when something happens.", "success");
   } catch (error) {
     state.player = null;
@@ -1165,11 +1202,20 @@ function videoPayload() {
   };
 }
 
-async function saveVideo(publish = false) {
+// mode: "progress" saves as In progress, "publish" saves as Published, "unpublish" takes a published
+// video back to In progress (saving any open edits with it).
+async function saveVideo(mode = "progress") {
   if (!state.activeRecord || !state.playerReady || state.isSaving) return;
-  if (!publish && state.activeRecord.status === "published") {
-    notify("This video is published. Use Re-publish changes to update what viewers see.", "error");
+  const publish = mode === "publish";
+  const wasPublished = state.activeRecord.status === "published";
+  if (mode === "progress" && wasPublished) {
+    notify("This video is published. Use Re-publish changes to update what viewers see, or Unpublish to hide it.", "error");
     return;
+  }
+  if (mode === "unpublish") {
+    if (!wasPublished) return;
+    const extra = state.isDirty ? " Your unsaved changes will be saved with it." : "";
+    if (!window.confirm(`Unpublish "${state.activeRecord.title}"? Viewers will no longer see it, and it moves back to In progress.${extra}`)) return;
   }
   const incomplete = state.tags.filter((tag) => !isComplete(tag)).length;
 
@@ -1183,7 +1229,7 @@ async function saveVideo(publish = false) {
 
   state.isSaving = true;
   refreshActions();
-  $("#saveHint").textContent = publish ? "Publishing…" : "Saving…";
+  $("#saveHint").textContent = { publish: "Publishing…", unpublish: "Unpublishing…", progress: "Saving…" }[mode];
   try {
     const now = new Date().toISOString();
     const { data, error } = await supabase
@@ -1195,7 +1241,7 @@ async function saveVideo(publish = false) {
         status: publish ? "published" : "in_progress",
         tags: payload.tags,
         updated_at: now,
-        published_at: publish ? now : state.activeRecord.publishedAt,
+        published_at: publish ? now : mode === "unpublish" ? null : state.activeRecord.publishedAt,
       }, { onConflict: "id" })
       .select("*")
       .single();
@@ -1220,9 +1266,11 @@ async function saveVideo(publish = false) {
     const hiddenNote = incomplete
       ? ` ${plural(incomplete, "moment")} without an event type ${incomplete === 1 ? "is" : "are"} hidden from viewers.`
       : "";
-    notify(publish
-      ? `${saved.title} is published. Viewers can watch it now.${hiddenNote}`
-      : `${saved.title} saved. It stays hidden from viewers until you publish it.`, "success");
+    notify({
+      publish: `${saved.title} is published. Viewers can watch it now.${hiddenNote}`,
+      unpublish: `${saved.title} is unpublished. Viewers can no longer see it, and it is back in In progress.`,
+      progress: `${saved.title} saved. It stays hidden from viewers until you publish it.`,
+    }[mode], "success");
     try {
       await loadLibrary();
     } catch (loadError) {
@@ -1230,7 +1278,7 @@ async function saveVideo(publish = false) {
     }
   } catch (error) {
     $("#saveHint").textContent = "Save failed";
-    notify(`Video ${publish ? "publish" : "save"} failed: ${friendlyError(error)}`, "error");
+    notify(`Video ${{ publish: "publish", unpublish: "unpublish", progress: "save" }[mode]} failed: ${friendlyError(error)}`, "error");
   } finally {
     state.isSaving = false;
     refreshActions();
@@ -1447,8 +1495,9 @@ $("#videoForm").addEventListener("submit", (event) => {
 });
 
 $("#markMomentButton").addEventListener("click", markMoment);
-$("#saveVideoButton").addEventListener("click", () => saveVideo());
-$("#publishVideoButton").addEventListener("click", () => saveVideo(true));
+$("#saveVideoButton").addEventListener("click", () => saveVideo("progress"));
+$("#publishVideoButton").addEventListener("click", () => saveVideo("publish"));
+$("#unpublishVideoButton").addEventListener("click", () => saveVideo("unpublish"));
 $("#newVideoButton").addEventListener("click", startNewVideo);
 document.querySelectorAll(".tab-button").forEach((button) => {
   button.addEventListener("click", () => setTab(button.dataset.tab));

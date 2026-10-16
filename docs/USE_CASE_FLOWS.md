@@ -155,10 +155,13 @@ flowchart TD
   B -- New or In progress --> C{Choose}
   C -- Save progress --> D[Store as In progress, hidden from viewers]
   C -- Publish video --> F[Store as Published, visible to viewers]
-  B -- Published --> G[Only 'Re-publish changes' is offered]
-  G --> F
+  B -- Published --> G{Choose}
+  G -- Re-publish changes --> F
+  G -- Unpublish --> U{Confirm?}
+  U -- No --> A
+  U -- Yes --> D2["Store as In progress (open edits included), hidden from viewers"]
   F --> F1[Viewers see only moments that have an event type]
-  D & F1 --> H[Reload library lists]
+  D & D2 & F1 --> H[Reload library lists]
 ```
 
 ```mermaid
@@ -169,11 +172,15 @@ stateDiagram-v2
   InProgress --> InProgress: Save progress
   InProgress --> Published: Publish video
   Published --> Published: Re-publish changes
+  Published --> InProgress: Unpublish (editor or library)
   InProgress --> [*]: Remove
   Published --> [*]: Remove
 ```
 
-There is currently no way to move a published video back to In progress.
+A published video can be unpublished from the editor (next to Re-publish
+changes) or straight from its Published library entry without opening it.
+Either way it asks for confirmation and moves the video back to In progress;
+from the editor, any unsaved edits are saved with it.
 
 ## UC5 Reopen a saved video (admin)
 
