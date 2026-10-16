@@ -39,7 +39,7 @@ This clone already includes the core cloud-library flow and admin/viewer split t
   - Loads and renders the cloud library from `public.videos`.
   - Saves and publishes videos using Supabase `upsert`, and removes videos with `delete`.
   - Allows admins to open a Vimeo video, mark timestamps, and assign event types in a single list of moments in match order.
-  - A moment is complete once it has an event type; incomplete moments are highlighted and can be saved as progress, but block publishing.
+  - A moment is complete once it has an event type; incomplete moments are highlighted, always saved, and hidden from viewers.
   - Keeps viewer access read-only in the UI and relies on database RLS as the security boundary.
 - `public/styles.css`
   - Styles the login card, library cards, event rows, completed-events UI, and watch tab.
@@ -88,7 +88,7 @@ The app stores event objects in the JSON as tag records, including things like:
 - `note`
 - `completed` (boolean, written on every save)
 
-`completed` is true when the moment has an event type (and, for `other`, a custom name). The UI recomputes it from those fields, so older records without the flag still work. In-progress records may contain incomplete moments; publishing requires every moment to be complete, and the Watch view only lists complete moments.
+`completed` is true when the moment has an event type (and, for `other`, a custom name). The UI recomputes it from those fields, so older records without the flag still work. Any record, published or not, may contain incomplete moments; they never block saving or publishing, and the Watch view only lists complete moments.
 
 Use-case flow diagrams are in `docs/USE_CASE_FLOWS.md`.
 
@@ -121,7 +121,7 @@ Use-case flow diagrams are in `docs/USE_CASE_FLOWS.md`.
 
 ## Usability rework (2026-10-15, later session)
 
-- Replaced the Unassigned/Completed split and the per-event Save buttons with one list of moments in match order. Saving is now "Save progress" (incomplete moments allowed) and "Publish video" (all moments need a type).
+- Replaced the Unassigned/Completed split and the per-event Save buttons with one list of moments in match order. Saving is now "Save progress" and "Publish video". (Later changed: incomplete moments no longer block publishing; viewers just do not see them. Moment times can be edited from the list.)
 - Published videos only offer "Re-publish changes", because any save of a published row is visible to viewers.
 - Supabase auth events for the same user no longer re-run sign-in setup (no tab reset on token refresh).
 - Added a hint under the save buttons explaining why they are disabled, quick event-type buttons, a "mark N seconds earlier" setting (default 3 s, remembered per browser), player-name suggestions, Undo after deleting a moment, and a highlight on the open library video.

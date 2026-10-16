@@ -99,14 +99,16 @@ Notes:
 
 There is one list of moments, in match order. A moment is complete as soon as
 it has an event type (for "Other", also a custom name). The stored record
-keeps a `completed` flag on each moment.
+keeps a `completed` flag on each moment. Incomplete moments are always saved,
+but the Watch view never shows them.
 
 ```mermaid
 stateDiagram-v2
   [*] --> NeedsType: Mark moment
   NeedsType --> Complete: Choose a type
   Complete --> NeedsType: Clear the type
-  Complete --> Complete: Edit players or note
+  Complete --> Complete: Edit players, note or time
+  NeedsType --> NeedsType: Edit time
   NeedsType --> Deleted: Delete (×)
   Complete --> Deleted: Delete (×)
   Deleted --> NeedsType: Undo (incomplete moment)
@@ -121,6 +123,10 @@ flowchart TD
   A[Moments list] --> B{Action}
   B -- Change type, players or note --> C[Saved in the page at once; 'Unsaved changes' shown]
   B -- Click timestamp --> D[Player seeks to the moment]
+  B -- Edit under the timestamp --> T{New time}
+  T -- "Type mm:ss or h:mm:ss, Set time" --> T1[Moment moves, list re-sorts, player seeks there]
+  T -- Use video time --> T1
+  T -- Cancel or Esc --> A
   B -- × --> E[Moment removed; notice offers Undo]
   E --> F{Undo clicked?}
   F -- Yes --> G[Moment restored in match order]
@@ -129,30 +135,31 @@ flowchart TD
 
 ## UC4 Save and publish (admin)
 
-The area under the list always explains why a button is unavailable, for
-example "2 moments still need an event type before you can publish."
+Moments without an event type never block saving or publishing. They are
+stored, and the hint under the buttons says how many are hidden from viewers,
+for example "2 moments without an event type are saved but hidden from viewers
+until they have one."
 
 ```mermaid
 flowchart TD
   A[Ready to save] --> B{Video status}
   B -- New or In progress --> C{Choose}
-  C -- Save progress --> D["Store as In progress (incomplete moments allowed), hidden from viewers"]
-  C -- Publish video --> E{Every moment has a type?}
-  E -- No --> E1[Publish disabled, hint lists how many need a type]
-  E -- Yes --> F[Store as Published, visible to viewers]
+  C -- Save progress --> D[Store as In progress, hidden from viewers]
+  C -- Publish video --> F[Store as Published, visible to viewers]
   B -- Published --> G[Only 'Re-publish changes' is offered]
-  G --> E
-  D & F --> H[Reload library lists]
+  G --> F
+  F --> F1[Viewers see only moments that have an event type]
+  D & F1 --> H[Reload library lists]
 ```
 
 ```mermaid
 stateDiagram-v2
   [*] --> New: Open video
   New --> InProgress: Save progress
-  New --> Published: Publish video (all complete)
+  New --> Published: Publish video
   InProgress --> InProgress: Save progress
-  InProgress --> Published: Publish video (all complete)
-  Published --> Published: Re-publish changes (all complete)
+  InProgress --> Published: Publish video
+  Published --> Published: Re-publish changes
   InProgress --> [*]: Remove
   Published --> [*]: Remove
 ```

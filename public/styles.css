@@ -118,7 +118,10 @@ body.stage-open { overflow: hidden; }
 .stage-mode .video-card { display: flex; flex: 1; min-height: 0; flex-direction: column; }
 .stage-mode .video-frame { flex: 1; min-height: 0; aspect-ratio: auto; }
 .stage-mode .video-frame iframe { min-height: 0; }
-#tagger.stage-mode .tags-card { min-height: 0; overflow: auto; }
+/* Only the list scrolls in full screen, so Mark moment and the save buttons stay put. */
+#tagger.stage-mode .tags-card { display: flex; min-height: 0; flex-direction: column; overflow: hidden; }
+#tagger.stage-mode .tag-list { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+#tagger.stage-mode .tags-card > :not(.tag-list) { flex: 0 0 auto; }
 #watchWorkspace.stage-mode { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); grid-template-rows: minmax(0, 1fr); align-items: stretch; gap: 12px; }
 #watchWorkspace.stage-mode .watch-player-card { display: flex; min-height: 0; flex-direction: column; }
 #watchWorkspace.stage-mode .watch-events-card { display: flex; min-height: 0; flex-direction: column; }
@@ -131,7 +134,7 @@ body.stage-open { overflow: hidden; }
 .tags-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
 .tags-heading .eyebrow { margin-bottom: 5px; }
 .count-bubble { display: inline-grid; min-width: 24px; height: 24px; place-items: center; margin-left: 4px; border-radius: 30px; padding: 0 7px; color: #bed0c2; background: #2a3730; font: 12px Consolas, monospace; vertical-align: 2px; }
-.incomplete-count { margin: 6px 0 0; color: var(--amber); font-size: 13px; font-weight: 600; }
+.incomplete-count { min-height: 1.5em; margin: 6px 0 0; color: var(--amber); font-size: 13px; font-weight: 600; line-height: 1.5; }
 .save-hint { color: var(--soft); font-size: 13px; white-space: nowrap; }
 .mark-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
 .mark-button { min-height: 50px; gap: 12px; padding: 0 22px; font-size: 15px; }
@@ -148,7 +151,14 @@ kbd { border: 1px solid #59704e; border-radius: 4px; padding: 2px 6px; color: #2
 .tag-time:hover:not(:disabled) { text-decoration: underline; }
 .tag-details { min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .tag-details input, .tag-details select { width: 100%; padding: 9px 10px; font-size: 13px; }
-.tag-details .moment-note, .tag-status, .quick-types, .custom-event-wrap { grid-column: 1 / -1; }
+.tag-details .moment-note, .tag-status, .quick-types, .custom-event-wrap, .time-editor { grid-column: 1 / -1; }
+.tag-time-col { display: grid; align-content: start; gap: 2px; }
+.edit-time { justify-self: start; border: 0; padding: 2px 0; color: var(--muted); background: transparent; cursor: pointer; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+.edit-time:hover, .edit-time[aria-expanded="true"] { color: var(--text); }
+.time-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; border: 1px solid var(--line); border-radius: 7px; padding: 8px; background: #121914; }
+.tag-details .time-editor .time-input { width: 96px; font-family: Consolas, monospace; }
+.time-editor .tag-save-button { min-height: 36px; padding: 0 12px; }
+.time-editor .link-button { margin: 0; }
 .tag-status { margin: 0; color: var(--amber); font-size: 12px; font-weight: 700; letter-spacing: .3px; }
 .quick-types { display: flex; flex-wrap: wrap; gap: 6px; }
 .quick-type { min-height: 34px; border: 1px solid #3c5640; border-radius: 30px; padding: 0 12px; color: var(--text); background: #a8f2771a; cursor: pointer; font-size: 13px; }

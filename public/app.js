@@ -186,12 +186,23 @@ function setDirty() {
 
 function actionHint(incomplete, isPublished) {
   if (!state.activeRecord || !state.playerReady) return "";
+  const parts = [];
   if (incomplete) {
-    const need = `${plural(incomplete, "moment")} still ${incomplete === 1 ? "needs" : "need"} an event type before you can ${isPublished ? "re-publish" : "publish"}.`;
-    return isPublished ? need : `${need} You can still save your progress.`;
+    parts.push(incomplete === 1
+      ? "1 moment without an event type is saved but hidden from viewers until it has one."
+      : `${incomplete} moments without an event type are saved but hidden from viewers until they have one.`);
   }
-  if (isPublished) return state.isDirty ? "Viewers see these changes after you re-publish." : "No changes since this video was published.";
-  return "";
+  if (isPublished) parts.push(state.isDirty ? "Viewers see your changes after you re-publish." : "No changes since this video was published.");
+  return parts.join(" ");
+}
+
+// Accepts "75", "1:15" or "1:01:15" and returns seconds, or null when the text is not a time.
+function parseTime(value) {
+  const parts = value.trim().split(":");
+  if (parts.length > 3 || parts.some((part) => !/^\d+$/.test(part))) return null;
+  const numbers = parts.map(Number);
+  if (numbers.slice(1).some((number) => number >= 60)) return null;
+  return numbers.reduce((total, number) => total * 60 + number, 0);
 }
 
 function refreshActions() {
@@ -202,7 +213,7 @@ function refreshActions() {
   const canSave = isAdmin && !!state.activeRecord && state.playerReady && !state.isSaving;
   $("#saveVideoButton").hidden = isPublished;
   $("#saveVideoButton").disabled = !canSave || !state.isDirty;
-  $("#publishVideoButton").disabled = !canSave || incomplete > 0 || (isPublished && !state.isDirty);
+  $("#publishVideoButton").disabled = !canSave || (isPublished && !state.isDirty);
   $("#publishVideoButton").textContent = isPublished ? "Re-publish changes" : "Publish video";
   $("#markMomentButton").disabled = !isAdmin || !state.playerReady || state.isSaving;
   for (const selector of ["#rewindButton", "#playPauseButton", "#forwardButton", "#tagFullscreenButton"]) {
@@ -210,9 +221,9 @@ function refreshActions() {
   }
   $("#actionHint").textContent = actionHint(incomplete, isPublished);
   $("#tagCount").textContent = state.tags.length;
+  // The line keeps its height when empty, so the Mark moment button below it never shifts under the pointer.
   $("#incompleteCount").textContent = incomplete ? `${incomplete} need${incomplete === 1 ? "s" : ""} a type` : "";
-  $("#incompleteCount").hidden = !incomplete;
-  document.querySelectorAll(".tag-time").forEach((button) => { button.disabled = !state.playerReady; });
+  document.querySelectorAll(".tag-time, .use-video-time").forEach((button) => { button.disabled = !state.playerReady; });
 }
 
 function renderLibrary() {
@@ -554,8 +565,100 @@ function renderTagRow(tag) {
     });
   });
 
+  const editTimeButton = document.createElement("button");
+  editTimeButton.className = "edit-time";
+  editTimeButton.type = "button";
+  editTimeButton.textContent = "Edit";
+  editTimeButton.setAttribute("aria-label", `Edit the time of the moment at ${time}`);
+  editTimeButton.setAttribute("aria-expanded", "false");
+
+  const timeColumn = document.createElement("div");
+  timeColumn.className = "tag-time-col";
+  timeColumn.append(seekButton, editTimeButton);
+
   const details = document.createElement("div");
   details.className = "tag-details";
+
+  const timeEditor = document.createElement("div");
+  timeEditor.className = "time-editor";
+  timeEditor.hidden = true;
+  const timeInput = document.createElement("input");
+  timeInput.className = "time-input";
+  timeInput.type = "text";
+  timeInput.inputMode = "numeric";
+  timeInput.value = time;
+  timeInput.setAttribute("aria-label", `New time for the moment at ${time}, as minutes:seconds`);
+  const setTimeButton = document.createElement("button");
+  setTimeButton.type = "button";
+  setTimeButton.className = "tag-save-button";
+  setTimeButton.textContent = "Set time";
+  const currentTimeButton = document.createElement("button");
+  currentTimeButton.type = "button";
+  currentTimeButton.className = "tag-save-button use-video-time";
+  currentTimeButton.textContent = "Use video time";
+  currentTimeButton.disabled = !state.playerReady;
+  const cancelTimeButton = document.createElement("button");
+  cancelTimeButton.type = "button";
+  cancelTimeButton.className = "link-button";
+  cancelTimeButton.textContent = "Cancel";
+  timeEditor.append(timeInput, setTimeButton, currentTimeButton, cancelTimeButton);
+
+  function showTimeEditor(open) {
+    timeEditor.hidden = !open;
+    editTimeButton.setAttribute("aria-expanded", String(open));
+    if (open) {
+      const current = state.tags.find((item) => item.id === tag.id);
+      timeInput.value = formatTime(current?.timestampSeconds ?? tag.timestampSeconds);
+      timeInput.focus();
+      timeInput.select();
+    }
+  }
+
+  function moveMoment(seconds) {
+    if (state.videoDuration && seconds > state.videoDuration) {
+      notify(`That is after the end of the video (${formatTime(state.videoDuration)}).`, "error");
+      return;
+    }
+    updateTag(tag.id, { timestampSeconds: seconds });
+    state.tags = [...state.tags].sort(byTime);
+    renderTags();
+    document.querySelector(`[data-tag-id="${tag.id}"]`)?.classList.add("just-added");
+    state.player?.setCurrentTime(seconds).catch(() => {});
+    notify(`Moved the moment from ${time} to ${formatTime(seconds)}.`, "success");
+  }
+
+  function applyTypedTime() {
+    const seconds = parseTime(timeInput.value);
+    if (seconds === null) {
+      notify("Type the time as minutes:seconds, for example 12:45, or hours:minutes:seconds.", "error");
+      timeInput.focus();
+      return;
+    }
+    moveMoment(seconds);
+  }
+
+  editTimeButton.addEventListener("click", () => showTimeEditor(timeEditor.hidden));
+  setTimeButton.addEventListener("click", applyTypedTime);
+  cancelTimeButton.addEventListener("click", () => {
+    showTimeEditor(false);
+    editTimeButton.focus();
+  });
+  currentTimeButton.addEventListener("click", () => {
+    if (!state.player) return;
+    state.player.getCurrentTime()
+      .then(moveMoment)
+      .catch((error) => notify(`Could not read the video time: ${error.message}`, "error"));
+  });
+  timeInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      applyTypedTime();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      showTimeEditor(false);
+      editTimeButton.focus();
+    }
+  });
 
   const status = document.createElement("p");
   status.className = "tag-status";
@@ -650,8 +753,8 @@ function renderTagRow(tag) {
     customWrap.hidden = current.eventType !== "other";
   }
 
-  details.append(status, quickTypes, eventType, customWrap, playerNames, note);
-  row.append(seekButton, details, deleteButton);
+  details.append(timeEditor, status, quickTypes, eventType, customWrap, playerNames, note);
+  row.append(timeColumn, details, deleteButton);
   refreshRow();
   return row;
 }
@@ -691,8 +794,14 @@ async function markMoment() {
     renderTags();
     const row = document.querySelector(`[data-tag-id="${tag.id}"]`);
     row?.classList.add("just-added");
-    // In full screen the moments panel scrolls on its own, so bring the new row into view there.
-    if ($("#tagger").classList.contains("stage-mode")) row?.scrollIntoView({ block: "nearest" });
+    // In full screen only the list scrolls. Scroll it directly: scrollIntoView would also move the page.
+    if (row && $("#tagger").classList.contains("stage-mode")) {
+      const list = $("#tagList");
+      const listBox = list.getBoundingClientRect();
+      const rowBox = row.getBoundingClientRect();
+      if (rowBox.bottom > listBox.bottom) list.scrollTop += rowBox.bottom - listBox.bottom;
+      else if (rowBox.top < listBox.top) list.scrollTop -= listBox.top - rowBox.top;
+    }
     notify(`Moment marked at ${formatTime(timestampSeconds)}${offset ? ` (${offset} seconds before you pressed)` : ""}. Pick its event type in the list.`, "success");
   } catch (error) {
     notify(`Could not capture the current video time: ${error.message}`, "error");
@@ -880,10 +989,6 @@ async function saveVideo(publish = false) {
     return;
   }
   const incomplete = state.tags.filter((tag) => !isComplete(tag)).length;
-  if (publish && incomplete) {
-    notify(`Give every moment an event type before publishing. ${plural(incomplete, "moment")} still ${incomplete === 1 ? "needs" : "need"} one.`, "error");
-    return;
-  }
 
   let payload;
   try {
@@ -929,8 +1034,11 @@ async function saveVideo(publish = false) {
     $("#videoUrl").value = saved.vimeoUrl;
     $("#saveHint").textContent = `Saved ${saved.status === "published" ? "as published" : "in progress"}`;
     renderTags();
+    const hiddenNote = incomplete
+      ? ` ${plural(incomplete, "moment")} without an event type ${incomplete === 1 ? "is" : "are"} hidden from viewers.`
+      : "";
     notify(publish
-      ? `${saved.title} is published. Viewers can watch it now.`
+      ? `${saved.title} is published. Viewers can watch it now.${hiddenNote}`
       : `${saved.title} saved. It stays hidden from viewers until you publish it.`, "success");
     try {
       await loadLibrary();
