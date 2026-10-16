@@ -70,6 +70,8 @@ const state = {
   isSaving: false,
   role: null,
   sessionUserId: null,
+  // Done groups start folded; this holds the ones the admin has opened.
+  expandedGroups: new Set(),
 };
 
 function showNotice(selector, message, kind = "", action = null) {
@@ -152,14 +154,23 @@ function isComplete(tag) {
   return tag.eventType !== "other" || !!tag.customEventType?.trim();
 }
 
+// A moment is "done" when the admin has ticked it off; it then leaves the To do list.
+// It needs a type to stay done, so clearing the type sends it back to To do.
+function isDone(tag) {
+  return !!tag.done && isComplete(tag);
+}
+
 function normalizeTag(tag) {
-  return {
+  const normalized = {
     ...tag,
     eventType: tag.eventType || "",
     customEventType: tag.customEventType || "",
     playerNames: tag.playerNames || "",
     note: tag.note || "",
   };
+  // Moments saved before the Done list existed count as done once they have a type.
+  normalized.done = typeof tag.done === "boolean" ? tag.done : isComplete(normalized);
+  return normalized;
 }
 
 function serializeTag(tag) {
@@ -171,6 +182,7 @@ function serializeTag(tag) {
     playerNames: (tag.playerNames || "").trim(),
     note: (tag.note || "").trim(),
     completed: isComplete(tag),
+    done: isDone(tag),
   };
 }
 
@@ -547,10 +559,30 @@ function deleteMoment(id) {
   });
 }
 
-function renderTagRow(tag) {
+function markDone(id) {
+  const tag = state.tags.find((item) => item.id === id);
+  if (!tag) return;
+  if (!isComplete(tag)) {
+    notify("Choose an event type before marking this moment as done.", "error");
+    return;
+  }
+  updateTag(id, { done: true });
+  renderTags();
+  notify(`Done: ${tagEventLabel(tag)} at ${formatTime(tag.timestampSeconds)}.`, "success", {
+    label: "Undo",
+    onClick: () => {
+      updateTag(id, { done: false });
+      renderTags();
+      notify(`Moved the moment at ${formatTime(tag.timestampSeconds)} back to To do.`, "success");
+    },
+  });
+}
+
+function renderTagRow(tag, done) {
   const time = formatTime(tag.timestampSeconds);
   const row = document.createElement("li");
   row.className = "tag-row";
+  row.classList.toggle("done", done);
   row.dataset.tagId = tag.id;
 
   const seekButton = document.createElement("button");
@@ -732,12 +764,53 @@ function renderTagRow(tag) {
   deleteButton.setAttribute("aria-label", `Delete moment at ${time}`);
   deleteButton.addEventListener("click", () => deleteMoment(tag.id));
 
+  const rowActions = document.createElement("div");
+  rowActions.className = "row-actions";
+  const doneButton = document.createElement("button");
+  doneButton.type = "button";
+  if (done) {
+    doneButton.className = "link-button";
+    doneButton.textContent = "Move back to To do";
+    doneButton.addEventListener("click", () => {
+      updateTag(tag.id, { done: false });
+      renderTags();
+      notify(`Moved the moment at ${time} back to To do.`, "success");
+    });
+  } else {
+    doneButton.className = "done-button";
+    doneButton.textContent = "✓ Done";
+    doneButton.setAttribute("aria-label", `Mark the moment at ${time} as done`);
+    doneButton.addEventListener("click", () => markDone(tag.id));
+  }
+  rowActions.append(doneButton);
+
+  // Enter in a to-do row's text fields ticks the moment off, so typing names never needs the mouse.
+  if (!done) {
+    for (const input of [customEvent, playerNames, note]) {
+      input.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
+        event.preventDefault();
+        markDone(tag.id);
+      });
+    }
+  }
+
   function applyEventType(value) {
     if (value === "other") {
       updateTag(tag.id, { eventType: value });
     } else {
       customEvent.value = "";
       updateTag(tag.id, { eventType: value, customEventType: "" });
+    }
+    // A done moment moves to its new type's group, or back to To do once it no longer has a full type.
+    if (done) {
+      const current = state.tags.find((item) => item.id === tag.id);
+      if (!isComplete(current)) updateTag(tag.id, { done: false });
+      // Open the group the edited moment moves into, so it doesn't vanish from view mid-edit.
+      else state.expandedGroups.add(tagEventLabel(current));
+      renderTags();
+      if (value === "other") document.querySelector(`[data-tag-id="${tag.id}"] .custom-event`)?.focus();
+      return;
     }
     refreshRow();
   }
@@ -751,17 +824,126 @@ function renderTagRow(tag) {
     status.textContent = current.eventType === "other" ? "Name this event" : "Needs an event type";
     quickTypes.hidden = !!current.eventType;
     customWrap.hidden = current.eventType !== "other";
+    if (!done) doneButton.disabled = !complete;
   }
 
-  details.append(timeEditor, status, quickTypes, eventType, customWrap, playerNames, note);
+  details.append(timeEditor, status, quickTypes, eventType, customWrap, playerNames, note, rowActions);
   row.append(timeColumn, details, deleteButton);
   refreshRow();
   return row;
 }
 
+function groupHeading(tagName, text, count) {
+  const heading = document.createElement(tagName);
+  heading.className = "moment-group-heading";
+  const bubble = document.createElement("span");
+  bubble.className = "count-bubble";
+  bubble.textContent = count;
+  heading.append(`${text} `, bubble);
+  return heading;
+}
+
+function deleteMoments(tags, listName) {
+  if (!tags.length) return;
+  if (!window.confirm(`Delete all ${plural(tags.length, "moment")} in ${listName}? You can undo this straight after.`)) return;
+  const ids = new Set(tags.map((tag) => tag.id));
+  state.tags = state.tags.filter((tag) => !ids.has(tag.id));
+  setDirty();
+  renderTags();
+  notify(`Deleted ${plural(tags.length, "moment")} from ${listName}.`, "success", {
+    label: "Undo",
+    onClick: () => {
+      const present = new Set(state.tags.map((tag) => tag.id));
+      state.tags = [...state.tags, ...tags.filter((tag) => !present.has(tag.id))].sort(byTime);
+      setDirty();
+      renderTags();
+      notify(`Restored ${plural(tags.length, "moment")} to ${listName}.`, "success");
+    },
+  });
+}
+
+function sectionHeader(text, tags) {
+  const header = document.createElement("div");
+  header.className = "moment-group-header";
+  header.append(groupHeading("h3", text, tags.length));
+  if (tags.length) {
+    const deleteAll = document.createElement("button");
+    deleteAll.type = "button";
+    deleteAll.className = "delete-all";
+    deleteAll.textContent = "Delete all";
+    deleteAll.setAttribute("aria-label", `Delete all ${plural(tags.length, "moment")} in ${text}`);
+    deleteAll.addEventListener("click", () => deleteMoments(tags, text));
+    header.append(deleteAll);
+  }
+  return header;
+}
+
+function momentRows(tags, done) {
+  const list = document.createElement("ol");
+  list.className = "moment-rows";
+  list.append(...tags.map((tag) => renderTagRow(tag, done)));
+  return list;
+}
+
+// Done groups follow the event-type list (Goal, Assist, Shot…), with custom "Other" names last.
+function groupOrder(tag) {
+  const index = eventTypes.findIndex(([value]) => value === tag.eventType);
+  return tag.eventType === "other" || index < 0 ? eventTypes.length : index;
+}
+
 function renderTags() {
   $("#emptyTags").hidden = state.tags.length > 0;
-  $("#tagList").replaceChildren(...state.tags.map(renderTagRow));
+  const todo = state.tags.filter((tag) => !isDone(tag));
+  const done = state.tags.filter(isDone);
+  const sections = [];
+
+  if (state.tags.length) {
+    const todoSection = document.createElement("section");
+    todoSection.className = "moment-group moment-group-todo";
+    todoSection.append(sectionHeader("To do", todo));
+    if (todo.length) {
+      todoSection.append(momentRows(todo, false));
+    } else {
+      const empty = document.createElement("p");
+      empty.className = "empty-state";
+      empty.textContent = "Nothing left to do. Mark a moment while you watch.";
+      todoSection.append(empty);
+    }
+
+    const doneSection = document.createElement("section");
+    doneSection.className = "moment-group moment-group-done";
+    doneSection.append(sectionHeader("Done", done));
+    if (!done.length) {
+      const empty = document.createElement("p");
+      empty.className = "empty-state";
+      empty.textContent = "Moments you mark as done appear here, grouped by event type.";
+      doneSection.append(empty);
+    }
+    const groups = new Map();
+    for (const tag of done) {
+      const label = tagEventLabel(tag);
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label).push(tag);
+    }
+    const ordered = [...groups.entries()].sort(([firstLabel, [first]], [secondLabel, [second]]) =>
+      groupOrder(first) - groupOrder(second) || firstLabel.localeCompare(secondLabel));
+    for (const [label, tags] of ordered) {
+      const group = document.createElement("details");
+      group.className = "type-group";
+      group.open = state.expandedGroups.has(label);
+      const summary = document.createElement("summary");
+      summary.append(groupHeading("span", label, tags.length));
+      group.append(summary, momentRows(tags, true));
+      group.addEventListener("toggle", () => {
+        if (group.open) state.expandedGroups.add(label);
+        else state.expandedGroups.delete(label);
+      });
+      doneSection.append(group);
+    }
+    sections.push(todoSection, doneSection);
+  }
+
+  $("#tagList").replaceChildren(...sections);
   renderPlayerSuggestions();
   refreshActions();
 }
@@ -788,6 +970,7 @@ async function markMoment() {
       customEventType: "",
       playerNames: "",
       note: "",
+      done: false,
     };
     state.tags = [...state.tags, tag].sort(byTime);
     setDirty();

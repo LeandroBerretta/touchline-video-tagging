@@ -97,23 +97,29 @@ Notes:
 
 ## Moment lifecycle
 
-There is one list of moments, in match order. A moment is complete as soon as
-it has an event type (for "Other", also a custom name). The stored record
-keeps a `completed` flag on each moment. Incomplete moments are always saved,
-but the Watch view never shows them.
+Moments are split into a **To do** list (match order) and a **Done** list,
+grouped by event type in the order of the event-type list, with custom
+"Other" names last. Each group starts folded; click its name to open it. A moment is complete as soon
+as it has an event type (for "Other", also a custom name); the admin then
+ticks it off with **✓ Done** (or Enter in its player or note field). The
+stored record keeps `completed` and `done` flags on each moment. Incomplete
+moments are always saved, but the Watch view never shows them. Moments saved
+before the Done list existed count as done if they have a type.
 
 ```mermaid
 stateDiagram-v2
   [*] --> NeedsType: Mark moment
-  NeedsType --> Complete: Choose a type
-  Complete --> NeedsType: Clear the type
-  Complete --> Complete: Edit players, note or time
-  NeedsType --> NeedsType: Edit time
+  NeedsType --> Typed: Choose a type
+  Typed --> NeedsType: Clear the type
+  Typed --> Done: ✓ Done (or Enter in a text field)
+  Done --> Typed: Move back to To do / Undo
+  Done --> NeedsType: Clear the type
+  Done --> Done: Change type (moves group), edit players, note or time
   NeedsType --> Deleted: Delete (×)
-  Complete --> Deleted: Delete (×)
-  Deleted --> NeedsType: Undo (incomplete moment)
-  Deleted --> Complete: Undo (complete moment)
+  Typed --> Deleted: Delete (×)
+  Done --> Deleted: Delete (×)
   Deleted --> [*]
+  note right of Typed: NeedsType and Typed are shown in To do
 ```
 
 ## UC3 Edit or delete a moment (admin)
@@ -128,6 +134,9 @@ flowchart TD
   T -- Use video time --> T1
   T -- Cancel or Esc --> A
   B -- × --> E[Moment removed; notice offers Undo]
+  B -- "Delete all (To do or Done heading)" --> DA{Confirm?}
+  DA -- No --> A
+  DA -- Yes --> E2[Every moment in that list removed; notice offers Undo for all]
   E --> F{Undo clicked?}
   F -- Yes --> G[Moment restored in match order]
   F -- No --> H[Removed when the video is next saved]
