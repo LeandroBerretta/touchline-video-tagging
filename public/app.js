@@ -35,7 +35,7 @@ const eventTypes = [
   ["other", "Other"],
 ];
 // Shown as one-tap buttons on moments that still need a type.
-const quickEventTypes = ["pass", "shot_on_target", "shot_off_target", "tackle", "foul", "goal"];
+const quickEventTypes = ["throw_in", "kick_off", "corner", "shot_off_target", "shot_on_target", "goal"];
 const markOffsetChoices = [0, 3, 5, 10];
 const markOffsetStorageKey = "touchline.markOffsetSeconds";
 const libraryHiddenStorageKey = "touchline.libraryHidden";
