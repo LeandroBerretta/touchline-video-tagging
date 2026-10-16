@@ -93,6 +93,10 @@ Notes:
 - Full screen (under the video) fills the screen with the video and the
   moments list together. Vimeo's own full screen is disabled in this view
   because it would hide the tagging controls. Hide library widens the video.
+- Zoom (under the video, in Tag and Watch) magnifies the player up to 400%.
+  While zoomed, drag pans, the wheel zooms towards the pointer and a click
+  plays or pauses; keys + / − / 0 zoom in, out and reset in Tag. It scales the
+  Vimeo player box, so close-ups may look soft and Vimeo's controls are hidden.
 - The mark offset (0, 3, 5 or 10 seconds earlier) is remembered in this browser.
 - Clicking a moment's timestamp plays the video from that point.
 - Player-name suggestions come from names already used in the library.
@@ -245,7 +249,7 @@ Notes:
 - Groups follow the event-type list order (custom types last) and start folded.
 - Every event has its own tick box; a group's tick box selects all its events
   and shows a partly-ticked state (count like `2/8`) when only some are picked.
-- Clip length is 10, 15, 20, 30 or 45 seconds, remembered per browser. Changing
+- Clip length is 5, 10, 15, 20, 30 or 45 seconds, remembered per browser. Changing
   it during a playlist applies from the next clip.
 - Overlapping clips run on without jumping back; the playing event is
   highlighted and the playlist bar shows "clip n of total".

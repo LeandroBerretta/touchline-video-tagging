@@ -101,7 +101,13 @@ input::placeholder { color: #7d8b82; }
 .column-tools { display: flex; justify-content: flex-start; margin: -6px 0 6px; }
 .column-tools .link-button { margin: 0; }
 .video-frame { display: grid; min-height: 220px; aspect-ratio: 16 / 9; place-items: center; background: #080b09; }
-.video-frame iframe { width: 100%; height: 100%; min-height: 220px; border: 0; }
+.video-frame iframe { width: 100%; height: 100%; min-height: 220px; border: 0; transform-origin: 0 0; }
+.video-frame { position: relative; overflow: hidden; }
+.zoom-pan { position: absolute; inset: 0; z-index: 2; cursor: grab; touch-action: none; background: transparent; }
+.zoom-pan:active { cursor: grabbing; }
+.zoom-controls { display: inline-flex; align-items: center; gap: 4px; }
+.zoom-button { min-width: 40px; padding: 0; font-size: 18px; }
+.zoom-level { min-width: 48px; color: var(--muted); font: 13px Consolas, monospace; font-variant-numeric: tabular-nums; text-align: center; }
 .player-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding: 10px 12px; }
 .player-button { min-height: 40px; border: 1px solid var(--line); border-radius: 7px; padding: 0 14px; color: var(--text); background: #121914; cursor: pointer; font-size: 14px; font-weight: 700; }
 .player-button:hover:not(:disabled) { border-color: #668a55; background: #1c251f; }

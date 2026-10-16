@@ -116,6 +116,12 @@
                   <button id="playPauseButton" class="player-button player-button-main" type="button" title="Play or pause (Space)" disabled>Play</button>
                   <button id="forwardButton" class="player-button" type="button" aria-label="Forward 5 seconds" title="Forward 5 seconds (→)" disabled>5 s »</button>
                   <span id="playerClock" class="player-clock" aria-live="off">00:00</span>
+                  <span class="zoom-controls" role="group" aria-label="Zoom">
+                    <button id="tagZoomOut" class="player-button zoom-button" type="button" aria-label="Zoom out" title="Zoom out (−)">−</button>
+                    <span id="tagZoomLevel" class="zoom-level">100%</span>
+                    <button id="tagZoomIn" class="player-button zoom-button" type="button" aria-label="Zoom in" title="Zoom in (+). Then drag the picture to look around.">+</button>
+                    <button id="tagZoomReset" class="player-button" type="button" title="Back to the whole picture (0)">Reset</button>
+                  </span>
                   <button id="tagFullscreenButton" class="player-button" type="button" title="Video and moments together on the whole screen" disabled>Full screen</button>
                 </div>
               </div>
@@ -191,6 +197,14 @@
               </div>
             </div>
             <div id="watchVideoFrame" class="video-frame"></div>
+            <div class="player-bar" role="group" aria-label="Zoom">
+              <span class="zoom-controls">
+                <button id="watchZoomOut" class="player-button zoom-button" type="button" aria-label="Zoom out" title="Zoom out">−</button>
+                <span id="watchZoomLevel" class="zoom-level">100%</span>
+                <button id="watchZoomIn" class="player-button zoom-button" type="button" aria-label="Zoom in" title="Zoom in. Then drag the picture to look around.">+</button>
+                <button id="watchZoomReset" class="player-button" type="button" title="Back to the whole picture">Reset</button>
+              </span>
+            </div>
           </section>
           <section class="watch-events-card" aria-labelledby="watchEventsHeading">
             <div class="watch-events-heading">
@@ -204,6 +218,7 @@
               <label class="clip-length-label" for="clipLength">
                 Clip length
                 <select id="clipLength">
+                  <option value="5">5 seconds</option>
                   <option value="10">10 seconds</option>
                   <option value="15">15 seconds</option>
                   <option value="20" selected>20 seconds</option>

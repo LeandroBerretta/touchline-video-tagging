@@ -7,6 +7,7 @@ const supabase = config?.url && config?.publishableKey
   : null;
 const eventTypes = [
   ["", "Choose event type…"],
+  ["start_of_game", "Start of game"],
   ["goal", "Goal"],
   ["assist", "Assist"],
   ["shot_on_target", "Shot on target"],
@@ -21,6 +22,7 @@ const eventTypes = [
   ["goal_kick", "Goal kick"],
   ["kick_off", "Kick-off"],
   ["foul", "Foul"],
+  ["hand_ball", "Hand ball"],
   ["yellow_card", "Yellow card"],
   ["red_card", "Red card"],
   ["penalty", "Penalty"],
@@ -32,6 +34,7 @@ const eventTypes = [
   ["clearance", "Clearance"],
   ["block", "Block"],
   ["substitution", "Substitution"],
+  ["end_of_game", "End of game"],
   ["other", "Other"],
 ];
 // Shown as one-tap buttons on moments that still need a type.
@@ -42,7 +45,7 @@ const libraryHiddenStorageKey = "touchline.libraryHidden";
 const seekStepSeconds = 5;
 // Watch playback starts a little before each moment so viewers see the build-up.
 const watchLeadSeconds = 3;
-const clipLengthChoices = [10, 15, 20, 30, 45];
+const clipLengthChoices = [5, 10, 15, 20, 30, 45];
 const clipLengthStorageKey = "touchline.clipLengthSeconds";
 const errorMessages = [
   [/invalid login credentials/i, "The email or password is incorrect."],
@@ -104,6 +107,99 @@ function friendlyError(error) {
   const message = error?.message || String(error);
   const match = errorMessages.find(([pattern]) => pattern.test(message));
   return match ? match[1] : message;
+}
+
+// Zoom magnifies the Vimeo player box with a CSS transform and pans inside it; the video itself
+// lives in Vimeo's cross-origin frame, so this is the only zoom available. The view is stored as a
+// zoom factor plus the visible centre (u, v) in 0–1 frame coordinates, so it survives resizing and
+// full screen. While zoomed, a transparent layer takes drags (pan), wheel (zoom) and taps (play/pause).
+const zoomSteps = [1, 1.5, 2, 3, 4];
+const maxZoom = zoomSteps[zoomSteps.length - 1];
+
+function createZoom(frameElement, controls, onTap) {
+  const view = { zoom: 1, u: 0.5, v: 0.5 };
+  const layer = document.createElement("div");
+  layer.className = "zoom-pan";
+  layer.hidden = true;
+  layer.title = "Drag to look around, scroll to zoom, click to play or pause";
+
+  function apply() {
+    const half = 0.5 / view.zoom;
+    view.u = Math.min(1 - half, Math.max(half, view.u));
+    view.v = Math.min(1 - half, Math.max(half, view.v));
+    const iframe = frameElement.querySelector("iframe");
+    if (iframe) {
+      iframe.style.transform = view.zoom === 1
+        ? ""
+        : `translate(${-(view.u * view.zoom - 0.5) * 100}%, ${-(view.v * view.zoom - 0.5) * 100}%) scale(${view.zoom})`;
+    }
+    if (!layer.isConnected) frameElement.append(layer);
+    layer.hidden = view.zoom === 1;
+    controls.level.textContent = `${Math.round(view.zoom * 100)}%`;
+    controls.zoomOut.disabled = view.zoom <= 1;
+    controls.zoomIn.disabled = view.zoom >= maxZoom;
+    controls.reset.disabled = view.zoom === 1;
+  }
+
+  // Zooms to a new factor while keeping the point at (sx, sy) of the frame (0–1) in the same place.
+  function setZoom(zoom, sx = 0.5, sy = 0.5) {
+    const pointU = view.u + (sx - 0.5) / view.zoom;
+    const pointV = view.v + (sy - 0.5) / view.zoom;
+    view.zoom = Math.min(maxZoom, Math.max(1, zoom));
+    view.u = pointU - (sx - 0.5) / view.zoom;
+    view.v = pointV - (sy - 0.5) / view.zoom;
+    apply();
+  }
+
+  function step(direction) {
+    const next = direction > 0
+      ? zoomSteps.find((level) => level > view.zoom + 0.01)
+      : [...zoomSteps].reverse().find((level) => level < view.zoom - 0.01);
+    setZoom(next ?? (direction > 0 ? maxZoom : 1));
+  }
+
+  let drag = null;
+  layer.addEventListener("pointerdown", (event) => {
+    layer.setPointerCapture(event.pointerId);
+    drag = { x: event.clientX, y: event.clientY, u: view.u, v: view.v, moved: false };
+  });
+  layer.addEventListener("pointermove", (event) => {
+    if (!drag) return;
+    const dx = event.clientX - drag.x;
+    const dy = event.clientY - drag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+    if (!drag.moved) return;
+    const box = frameElement.getBoundingClientRect();
+    view.u = drag.u - dx / (box.width * view.zoom);
+    view.v = drag.v - dy / (box.height * view.zoom);
+    apply();
+  });
+  layer.addEventListener("pointerup", () => {
+    if (drag && !drag.moved) onTap();
+    drag = null;
+  });
+  layer.addEventListener("pointercancel", () => { drag = null; });
+  layer.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const box = frameElement.getBoundingClientRect();
+    setZoom(view.zoom * Math.exp(-event.deltaY * 0.002),
+      (event.clientX - box.left) / box.width, (event.clientY - box.top) / box.height);
+  }, { passive: false });
+
+  controls.zoomIn.addEventListener("click", () => step(1));
+  controls.zoomOut.addEventListener("click", () => step(-1));
+  controls.reset.addEventListener("click", () => setZoom(1));
+
+  return {
+    zoomIn: () => step(1),
+    zoomOut: () => step(-1),
+    reset() {
+      view.zoom = 1;
+      view.u = 0.5;
+      view.v = 0.5;
+      apply();
+    },
+  };
 }
 
 function setTab(tab) {
@@ -808,6 +904,7 @@ async function selectWatchVideo(recordId) {
   if (video.hash) embedUrl.searchParams.set("h", video.hash);
   frame.src = embedUrl.href;
   $("#watchVideoFrame").append(frame);
+  watchZoom.reset();
 
   try {
     await loadVimeoSdk();
@@ -1442,6 +1539,7 @@ async function openVideo(value, record = null) {
   if (video.hash) embedUrl.searchParams.set("h", video.hash);
   frame.src = embedUrl.href;
   $("#videoFrame").replaceChildren(frame);
+  tagZoom.reset();
 
   try {
     await loadVimeoSdk();
@@ -1899,7 +1997,20 @@ document.addEventListener("fullscreenchange", () => {
 });
 // Clicking these buttons must not take keyboard focus, or the next Enter/Space would press them again
 // instead of marking a moment or pausing. Keyboard users can still Tab to them.
-for (const selector of ["#markMomentButton", "#rewindButton", "#playPauseButton", "#forwardButton", "#tagFullscreenButton"]) {
+const tagZoom = createZoom($("#videoFrame"), {
+  zoomIn: $("#tagZoomIn"), zoomOut: $("#tagZoomOut"), reset: $("#tagZoomReset"), level: $("#tagZoomLevel"),
+}, togglePlay);
+const watchZoom = createZoom($("#watchVideoFrame"), {
+  zoomIn: $("#watchZoomIn"), zoomOut: $("#watchZoomOut"), reset: $("#watchZoomReset"), level: $("#watchZoomLevel"),
+}, () => {
+  state.watchPlayer?.getPaused()
+    .then((paused) => paused ? state.watchPlayer.play() : state.watchPlayer.pause())
+    .catch((error) => notifyWatch(`Could not start or pause the video: ${error.message}`, "error"));
+});
+tagZoom.reset();
+watchZoom.reset();
+
+for (const selector of ["#markMomentButton", "#rewindButton", "#playPauseButton", "#forwardButton", "#tagFullscreenButton", "#tagZoomIn", "#tagZoomOut", "#tagZoomReset"]) {
   $(selector).addEventListener("mousedown", (event) => event.preventDefault());
 }
 
@@ -1925,7 +2036,8 @@ window.addEventListener("keydown", (event) => {
     return;
   }
   if (state.role !== "admin" || state.activeTab !== "tag" || $("#passwordDialog").open) return;
-  if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+  // "+" needs Shift on most keyboards, so it is the one key allowed with Shift.
+  if (event.ctrlKey || event.metaKey || event.altKey || (event.shiftKey && event.key !== "+")) return;
   const target = event.target;
   if (target instanceof HTMLElement && (
     target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)
@@ -1936,6 +2048,10 @@ window.addEventListener("keydown", (event) => {
     " ": () => togglePlay(),
     ArrowLeft: () => seekBy(-seekStepSeconds),
     ArrowRight: () => seekBy(seekStepSeconds),
+    "+": () => tagZoom.zoomIn(),
+    "=": () => tagZoom.zoomIn(),
+    "-": () => tagZoom.zoomOut(),
+    0: () => tagZoom.reset(),
   };
   const action = actions[event.key];
   if (!action) return;
