@@ -75,6 +75,10 @@
               <button id="newVideoButton" class="button button-outline" type="button">＋ New video</button>
             </div>
             <div class="library-columns">
+              <section aria-labelledby="queueHeading">
+                <h3 id="queueHeading">Not started <span id="queueCount" class="count-bubble">0</span></h3>
+                <div id="queueList" class="saved-video-list"><p class="empty-state">Nothing waiting. Use Add to queue to line up a video.</p></div>
+              </section>
               <section aria-labelledby="inProgressHeading">
                 <h3 id="inProgressHeading">In progress <span id="inProgressCount" class="count-bubble">0</span></h3>
                 <div id="inProgressList" class="saved-video-list"><p class="empty-state">No videos in progress.</p></div>
@@ -98,8 +102,9 @@
                 <div class="url-controls">
                   <input id="videoUrl" name="videoUrl" type="url" placeholder="https://vimeo.com/123456789" autocomplete="url" required>
                   <button id="openVideoButton" class="button button-primary" type="submit">Open video</button>
+                  <button id="queueVideoButton" class="button button-outline" type="button">Add to queue</button>
                 </div>
-                <p class="form-hint">The video must allow embedding. Private share links are supported.</p>
+                <p class="form-hint">Open video to start tagging now, or Add to queue to tag it later. The video must allow embedding; private share links are supported.</p>
               </form>
 
               <div id="notice" class="notice" role="status" aria-live="polite"></div>

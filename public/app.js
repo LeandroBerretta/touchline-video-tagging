@@ -228,6 +228,8 @@ function refreshActions() {
   const incomplete = state.tags.filter((tag) => !isComplete(tag)).length;
   const canSave = isAdmin && !!state.activeRecord && state.playerReady && !state.isSaving;
   $("#saveVideoButton").hidden = isPublished;
+  // Add to queue saves the form as a new video, so it only makes sense when no video is open.
+  $("#queueVideoButton").hidden = !!state.activeRecord;
   $("#unpublishVideoButton").hidden = !isPublished;
   $("#unpublishVideoButton").disabled = !canSave;
   $("#saveVideoButton").disabled = !canSave || !state.isDirty;
@@ -244,12 +246,60 @@ function refreshActions() {
   document.querySelectorAll(".tag-time, .use-video-time").forEach((button) => { button.disabled = !state.playerReady; });
 }
 
+// "Not started" is not stored separately: an unpublished video with no moments yet is in the queue,
+// and it moves to In progress as soon as it is saved with a moment.
+function librarySection(record) {
+  if (record.status === "published") return "published";
+  return record.tags.length ? "in_progress" : "queued";
+}
+
+async function addToQueue() {
+  if (state.role !== "admin" || state.activeRecord) return;
+  const title = $("#videoName").value.trim();
+  const vimeoUrl = $("#videoUrl").value.trim();
+  if (!title) {
+    notify("Enter a name for this video.", "error");
+    $("#videoName").focus();
+    return;
+  }
+  try {
+    parseVimeoUrl(vimeoUrl);
+  } catch (error) {
+    notify(error.message, "error");
+    $("#videoUrl").focus();
+    return;
+  }
+  const existing = state.records.find((record) => record.vimeoUrl === vimeoUrl);
+  if (existing && !window.confirm(`"${existing.title}" already uses this Vimeo link. Add it to the queue anyway?`)) return;
+
+  const button = $("#queueVideoButton");
+  button.disabled = true;
+  try {
+    const { error } = await supabase
+      .from("videos")
+      .insert({ name: title, vimeo_url: vimeoUrl, status: "in_progress", tags: [] });
+    if (error) throw error;
+    $("#videoName").value = "";
+    $("#videoUrl").value = "";
+    await loadLibrary();
+    notify(`"${title}" is in your queue under Not started. Open it from the library when you're ready to tag it.`, "success");
+    $("#videoName").focus();
+  } catch (error) {
+    notify(`Could not add "${title}" to the queue: ${friendlyError(error)}`, "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function renderLibrary() {
   for (const [status, listSelector, countSelector, emptyMessage] of [
+    ["queued", "#queueList", "#queueCount", "Nothing waiting. Use Add to queue to line up a video."],
     ["in_progress", "#inProgressList", "#inProgressCount", "No videos in progress."],
     ["published", "#publishedList", "#publishedCount", "No published videos yet."],
   ]) {
-    const records = state.records.filter((record) => record.status === status);
+    const records = state.records.filter((record) => librarySection(record) === status);
+    // The queue is first come, first served; the other lists show the most recently updated first.
+    if (status === "queued") records.sort((first, second) => first.createdAt.localeCompare(second.createdAt));
     $(countSelector).textContent = records.length;
     const list = $(listSelector);
     if (!records.length) {
@@ -272,11 +322,13 @@ function renderLibrary() {
       title.textContent = record.title;
       const incomplete = record.tags.filter((tag) => !isComplete(tag)).length;
       const details = document.createElement("span");
-      details.textContent = [
-        plural(record.tags.length, "moment"),
-        incomplete ? `${incomplete} need${incomplete === 1 ? "s" : ""} a type` : "",
-        `Updated ${new Date(record.updatedAt).toLocaleDateString()}`,
-      ].filter(Boolean).join(" · ");
+      details.textContent = status === "queued"
+        ? `Added ${new Date(record.createdAt).toLocaleDateString()}`
+        : [
+          plural(record.tags.length, "moment"),
+          incomplete ? `${incomplete} need${incomplete === 1 ? "s" : ""} a type` : "",
+          `Updated ${new Date(record.updatedAt).toLocaleDateString()}`,
+        ].filter(Boolean).join(" · ");
       button.append(title, details);
       button.addEventListener("click", async () => {
         if (!confirmDiscard()) return;
@@ -1758,6 +1810,7 @@ $("#saveVideoButton").addEventListener("click", () => saveVideo("progress"));
 $("#publishVideoButton").addEventListener("click", () => saveVideo("publish"));
 $("#unpublishVideoButton").addEventListener("click", () => saveVideo("unpublish"));
 $("#newVideoButton").addEventListener("click", startNewVideo);
+$("#queueVideoButton").addEventListener("click", addToQueue);
 document.querySelectorAll(".tab-button").forEach((button) => {
   button.addEventListener("click", () => setTab(button.dataset.tab));
 });

@@ -64,7 +64,9 @@ ignored, so they do not reset the tab or reload the library.
 flowchart TD
   A[Tag tab] --> B[Click '+ New video' or use the empty form]
   B --> C[Enter video name and Vimeo link]
-  C --> D[Open video]
+  C --> Q{Tag now?}
+  Q -- "No: Add to queue" --> Q1[Saved with no moments; listed under Not started, oldest first] --> B
+  Q -- Yes --> D[Open video]
   D --> E{Valid https Vimeo link?}
   E -- No --> E1[Show link error] --> C
   E -- Yes --> F[Embed Vimeo player]
@@ -186,7 +188,7 @@ from the editor, any unsaved edits are saved with it.
 
 ```mermaid
 flowchart TD
-  A[Library: In progress or Published list] --> B[Click a video]
+  A[Library: Not started, In progress or Published list] --> B[Click a video]
   B --> C{Unsaved changes?}
   C -- Yes --> D{Confirm discard?}
   D -- No --> A
