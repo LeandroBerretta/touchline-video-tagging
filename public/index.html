@@ -194,16 +194,30 @@
                 <h2 id="watchEventsHeading">Events <span id="watchEventCount" class="count-bubble">0</span></h2>
               </div>
             </div>
-            <p class="watch-events-hint">Select an event to play it, starting a few seconds before the moment.</p>
-            <div id="watchFilters" class="watch-filters" hidden>
-              <label for="watchTypeFilter">Event type</label>
-              <select id="watchTypeFilter">
-                <option value="">All event types</option>
-              </select>
-              <label for="watchPlayerFilter">Player</label>
-              <input id="watchPlayerFilter" type="search" list="playerNameOptions" placeholder="Filter by player name" autocomplete="off">
+            <p class="watch-events-hint">Tick whole event types, or open a type and tick single events, then play them back to back. Click an event itself to play just that one. Each clip starts 3 seconds before its moment.</p>
+            <div id="watchPlaylistControls" class="watch-playlist-controls" hidden>
+              <label class="clip-length-label" for="clipLength">
+                Clip length
+                <select id="clipLength">
+                  <option value="10">10 seconds</option>
+                  <option value="15">15 seconds</option>
+                  <option value="20" selected>20 seconds</option>
+                  <option value="30">30 seconds</option>
+                  <option value="45">45 seconds</option>
+                </select>
+              </label>
+              <button id="selectAllTypesButton" class="link-button" type="button">Select all</button>
+              <button id="playSelectedButton" class="button button-primary" type="button" disabled>▶ Play selected</button>
             </div>
-            <ol id="watchEventList" class="watch-event-list"></ol>
+            <div id="playlistBar" class="playlist-bar" hidden>
+              <p id="playlistStatus" class="playlist-status" role="status" aria-live="polite"></p>
+              <div class="playlist-buttons">
+                <button id="playlistPrevButton" class="player-button" type="button">◀ Previous</button>
+                <button id="playlistNextButton" class="player-button" type="button">Next ▶</button>
+                <button id="playlistStopButton" class="player-button" type="button">■ Stop</button>
+              </div>
+            </div>
+            <div id="watchGroups" class="watch-groups"></div>
             <p id="watchNoEvents" class="empty-state">This video has no tagged events yet.</p>
           </section>
         </div>

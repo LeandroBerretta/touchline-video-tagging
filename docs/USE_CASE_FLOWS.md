@@ -221,14 +221,32 @@ row-level security, not only by the UI.
 ```mermaid
 flowchart TD
   A[Watch view] --> B[Select a published video]
-  B --> C[Embed Vimeo player and list events in match order]
+  B --> C[Embed Vimeo player; list events in folded groups by event type]
   C --> D{Player ready?}
-  D -- No --> D1[Show error, events stay disabled]
+  D -- No --> D1[Show error, play buttons stay disabled]
   D -- Yes --> E{Action}
-  E -- Filter by event type or player --> F[List narrows, count shows 'n of total'] --> E
+  E -- "▶ Play on one group" --> P[Playlist: that type's clips in match order]
+  E -- "Tick whole types and/or single events, ▶ Play selected" --> P2[Playlist: every ticked event in match order]
+  P & P2 --> Q["Each clip: 3 s before the moment, for the clip length (default 20 s)"]
+  Q --> R{During playback}
+  R -- Clip ends --> S{More clips?}
+  S -- Yes --> Q
+  S -- No --> T[Pause; 'Finished all n clips'] --> E
+  R -- "Previous / Next" --> Q
+  R -- "Stop, or move the video by hand" --> E
+  E -- Open a group, click an event --> H[Play from 3 s before the moment] --> E
   E -- Watch whole video --> G[Seek to 0:00 and play] --> E
-  E -- Click an event --> H[Play from 3 s before the moment] --> E
 ```
+
+Notes:
+
+- Groups follow the event-type list order (custom types last) and start folded.
+- Every event has its own tick box; a group's tick box selects all its events
+  and shows a partly-ticked state (count like `2/8`) when only some are picked.
+- Clip length is 10, 15, 20, 30 or 45 seconds, remembered per browser. Changing
+  it during a playlist applies from the next clip.
+- Overlapping clips run on without jumping back; the playing event is
+  highlighted and the playlist bar shows "clip n of total".
 
 ## UC8 Sign out
 

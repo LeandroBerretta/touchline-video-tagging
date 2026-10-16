@@ -103,7 +103,7 @@ Use-case flow diagrams are in `docs/USE_CASE_FLOWS.md`.
 
 ## Current work items and follow-up tasks
 
-1. Test the reworked tagging flow, the Watch filters, and the password reset in a browser with real admin and viewer accounts (not yet done).
+1. Test the reworked tagging flow, Watch clip playlists, and the password reset in a browser with real admin and viewer accounts (not yet done).
 2. Confirm the GitHub repository visibility and Pages settings are compatible with GitHub Free.
 3. Add the required `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` secrets in GitHub Actions and confirm the workflow deploys successfully.
 4. Validate the production site with both admin and viewer accounts. Ensure viewer-only access is enforced by Supabase RLS, not just by hidden buttons.
@@ -125,7 +125,7 @@ Use-case flow diagrams are in `docs/USE_CASE_FLOWS.md`.
 - Published videos only offer "Re-publish changes", because any save of a published row is visible to viewers.
 - Supabase auth events for the same user no longer re-run sign-in setup (no tab reset on token refresh).
 - Added a hint under the save buttons explaining why they are disabled, quick event-type buttons, a "mark N seconds earlier" setting (default 3 s, remembered per browser), player-name suggestions, Undo after deleting a moment, and a highlight on the open library video.
-- Watch view: playback starts 3 s before each moment, events can be filtered by type and player, and viewers no longer see a one-tab bar.
+- Watch view: playback starts 3 s before each moment, events are grouped by type (later: playlists of back-to-back clips replaced the filters), and viewers no longer see a one-tab bar.
 - Added "Forgot password?" with a set-password dialog, plain-language error messages, larger text and tap targets, a bottom notice bar on narrow screens, and the library below the video on phones.
 - Pinned `@supabase/supabase-js` to 2.45.4.
 
@@ -139,4 +139,4 @@ Use-case flow diagrams are in `docs/USE_CASE_FLOWS.md`.
 
 ## Reminder for the next session
 
-The clone includes the admin/viewer flow, cloud library, a single-list tagging workflow with a persisted `completed` flag, and filtered watch playback. The most important things to do next are a browser test with real accounts and verifying the GitHub Pages deployment.
+The clone includes the admin/viewer flow, cloud library, a single-list tagging workflow with a persisted `completed` flag, To do / Done lists, unpublish, and Watch playlists that play clips of chosen event types back to back. The most important things to do next are a browser test with real accounts and verifying the GitHub Pages deployment.

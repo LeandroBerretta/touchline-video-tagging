@@ -42,6 +42,8 @@ const libraryHiddenStorageKey = "touchline.libraryHidden";
 const seekStepSeconds = 5;
 // Watch playback starts a little before each moment so viewers see the build-up.
 const watchLeadSeconds = 3;
+const clipLengthChoices = [10, 15, 20, 30, 45];
+const clipLengthStorageKey = "touchline.clipLengthSeconds";
 const errorMessages = [
   [/invalid login credentials/i, "The email or password is incorrect."],
   [/email not confirmed/i, "This email address has not been confirmed yet. Use the link in the confirmation email first."],
@@ -58,8 +60,10 @@ const state = {
   watchPlayer: null,
   watchLoadId: 0,
   selectedWatchId: "",
-  watchTypeFilter: "",
-  watchPlayerFilter: "",
+  watchReady: false,
+  watchSelectedIds: new Set(),
+  watchExpandedTypes: new Set(),
+  playlist: null,
   activeTab: "tag",
   activeRecord: null,
   records: [],
@@ -342,6 +346,8 @@ function renderWatchVideoOptions() {
 
   if (state.selectedWatchId && !selectionExists) {
     state.selectedWatchId = "";
+    state.watchReady = false;
+    stopPlaylist();
     state.watchLoadId++;
     if (state.watchPlayer) {
       state.watchPlayer.destroy().catch((error) => {
@@ -447,46 +453,248 @@ function currentWatchRecord() {
   return state.records.find((record) => record.id === state.selectedWatchId && record.status === "published");
 }
 
+// Published videos only show moments with an event type; older rows may still hold others.
+function watchEvents(record) {
+  return record.tags.filter(isComplete).sort(byTime);
+}
+
+function clipLengthSeconds() {
+  const value = Number($("#clipLength").value);
+  return clipLengthChoices.includes(value) ? value : 20;
+}
+
+function selectedWatchTags() {
+  const record = currentWatchRecord();
+  return record ? watchEvents(record).filter((tag) => state.watchSelectedIds.has(tag.id)) : [];
+}
+
+function refreshWatchControls() {
+  const ready = state.watchReady;
+  const selected = selectedWatchTags();
+  const record = currentWatchRecord();
+  const total = record ? watchEvents(record).length : 0;
+  $("#playSelectedButton").disabled = !ready || !selected.length;
+  $("#playSelectedButton").textContent = selected.length ? `▶ Play selected (${plural(selected.length, "clip")})` : "▶ Play selected";
+  $("#selectAllTypesButton").textContent = total && selected.length === total ? "Clear selection" : "Select all";
+  document.querySelectorAll(".watch-event, .watch-group-play").forEach((button) => { button.disabled = !ready; });
+}
+
 function renderWatchEvents(record) {
-  // Published videos only contain complete moments, but older rows may predate that rule.
-  const tags = record.tags.filter(isComplete).sort(byTime);
-  const labels = [...new Set(tags.map(tagEventLabel))].sort((first, second) => first.localeCompare(second));
-  if (!labels.includes(state.watchTypeFilter)) state.watchTypeFilter = "";
-  const typeFilter = $("#watchTypeFilter");
-  typeFilter.replaceChildren(new Option("All event types", ""), ...labels.map((label) => new Option(label, label)));
-  typeFilter.value = state.watchTypeFilter;
+  const tags = watchEvents(record);
+  const groups = new Map();
+  for (const tag of tags) {
+    const label = tagEventLabel(tag);
+    if (!groups.has(label)) groups.set(label, []);
+    groups.get(label).push(tag);
+  }
+  const presentIds = new Set(tags.map((tag) => tag.id));
+  for (const id of [...state.watchSelectedIds]) {
+    if (!presentIds.has(id)) state.watchSelectedIds.delete(id);
+  }
+  const ordered = [...groups.entries()].sort(([firstLabel, [first]], [secondLabel, [second]]) =>
+    groupOrder(first) - groupOrder(second) || firstLabel.localeCompare(secondLabel));
 
-  const playerQuery = state.watchPlayerFilter.trim().toLowerCase();
-  const visible = tags.filter((tag) => (!state.watchTypeFilter || tagEventLabel(tag) === state.watchTypeFilter)
-    && (!playerQuery || tag.playerNames?.toLowerCase().includes(playerQuery)));
+  $("#watchEventCount").textContent = tags.length;
+  $("#watchNoEvents").hidden = tags.length > 0;
+  $("#watchPlaylistControls").hidden = tags.length === 0;
+  $("#watchGroups").replaceChildren(...ordered.map(([label, groupTags]) => {
+    const expanded = state.watchExpandedTypes.has(label);
+    const group = document.createElement("section");
+    group.className = "watch-group";
 
-  $("#watchFilters").hidden = tags.length === 0;
-  $("#watchEventCount").textContent = visible.length === tags.length ? tags.length : `${visible.length} of ${tags.length}`;
-  $("#watchNoEvents").hidden = visible.length > 0;
-  $("#watchNoEvents").textContent = tags.length ? "No events match these filters." : "This video has no tagged events yet.";
-  $("#watchEventList").replaceChildren(...visible.map((tag) => {
-    const item = document.createElement("li");
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "watch-event";
-    button.disabled = !state.watchPlayer;
+    const header = document.createElement("div");
+    header.className = "watch-group-header";
+    const listId = `watch-group-${groupTags[0].id}`;
 
-    const time = document.createElement("span");
-    time.className = "watch-event-time";
-    time.textContent = formatTime(tag.timestampSeconds);
-    const title = document.createElement("span");
-    title.className = "watch-event-title";
-    title.textContent = watchEventTitle(tag);
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "watch-group-toggle";
+    toggle.textContent = expanded ? "▾" : "▸";
+    toggle.setAttribute("aria-expanded", String(expanded));
+    toggle.setAttribute("aria-controls", listId);
+    toggle.setAttribute("aria-label", `${expanded ? "Hide" : "Show"} ${label} events`);
 
-    button.append(time, title);
-    button.addEventListener("click", () => playWatchMoment(tag.timestampSeconds));
-    item.append(button);
-    return item;
+    const selectLabel = document.createElement("label");
+    selectLabel.className = "watch-group-select";
+    // The group box selects every event in the group; it shows "partly ticked" when only some are.
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.setAttribute("aria-label", `Select all ${label} events`);
+    const name = document.createElement("span");
+    name.textContent = label;
+    const bubble = document.createElement("span");
+    bubble.className = "count-bubble";
+    selectLabel.append(checkbox, name, bubble);
+    const eventBoxes = [];
+
+    function syncGroup() {
+      const selectedCount = groupTags.filter((tag) => state.watchSelectedIds.has(tag.id)).length;
+      checkbox.checked = selectedCount === groupTags.length;
+      checkbox.indeterminate = selectedCount > 0 && selectedCount < groupTags.length;
+      bubble.textContent = selectedCount && selectedCount < groupTags.length ? `${selectedCount}/${groupTags.length}` : groupTags.length;
+      for (const box of eventBoxes) box.checked = state.watchSelectedIds.has(box.dataset.tagId);
+      refreshWatchControls();
+    }
+
+    checkbox.addEventListener("change", () => {
+      for (const tag of groupTags) {
+        if (checkbox.checked) state.watchSelectedIds.add(tag.id);
+        else state.watchSelectedIds.delete(tag.id);
+      }
+      syncGroup();
+    });
+
+    const play = document.createElement("button");
+    play.type = "button";
+    play.className = "watch-group-play";
+    play.textContent = "▶ Play";
+    play.setAttribute("aria-label", `Play all ${plural(groupTags.length, "clip")} of ${label}`);
+    play.addEventListener("click", () => startPlaylist(groupTags, label));
+
+    header.append(toggle, selectLabel, play);
+
+    const list = document.createElement("ol");
+    list.className = "watch-event-list";
+    list.id = listId;
+    list.hidden = !expanded;
+    list.append(...groupTags.map((tag) => {
+      const item = document.createElement("li");
+      item.className = "watch-event-item";
+      const pick = document.createElement("input");
+      pick.type = "checkbox";
+      pick.className = "watch-event-pick";
+      pick.dataset.tagId = tag.id;
+      pick.setAttribute("aria-label", `Select ${tagEventLabel(tag)} at ${formatTime(tag.timestampSeconds)}`);
+      pick.addEventListener("change", () => {
+        if (pick.checked) state.watchSelectedIds.add(tag.id);
+        else state.watchSelectedIds.delete(tag.id);
+        syncGroup();
+      });
+      eventBoxes.push(pick);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "watch-event";
+      button.dataset.tagId = tag.id;
+
+      const time = document.createElement("span");
+      time.className = "watch-event-time";
+      time.textContent = formatTime(tag.timestampSeconds);
+      const title = document.createElement("span");
+      title.className = "watch-event-title";
+      title.textContent = watchEventTitle(tag);
+
+      button.append(time, title);
+      button.addEventListener("click", () => playWatchMoment(tag.timestampSeconds));
+      item.append(pick, button);
+      return item;
+    }));
+    syncGroup();
+
+    toggle.addEventListener("click", () => {
+      const open = list.hidden;
+      list.hidden = !open;
+      toggle.textContent = open ? "▾" : "▸";
+      toggle.setAttribute("aria-expanded", String(open));
+      toggle.setAttribute("aria-label", `${open ? "Hide" : "Show"} ${label} events`);
+      if (open) state.watchExpandedTypes.add(label);
+      else state.watchExpandedTypes.delete(label);
+    });
+
+    group.append(header, list);
+    return group;
   }));
+  refreshWatchControls();
+  renderPlaylistStatus();
+}
+
+// A playlist plays several clips back to back. Each clip starts a little before its moment and runs
+// for the chosen clip length; overlapping clips run on without jumping back.
+function startPlaylist(tags, description) {
+  if (!state.watchPlayer || !state.watchReady || !tags.length) return;
+  const length = clipLengthSeconds();
+  state.playlist = {
+    description,
+    clips: tags.map((tag) => {
+      const start = Math.max(0, tag.timestampSeconds - watchLeadSeconds);
+      return { tag, start, end: start + length };
+    }),
+    index: 0,
+    seeking: false,
+  };
+  notifyWatch(`Playing ${plural(tags.length, "clip")} of ${description}, ${length} seconds each.`, "success");
+  playClip(0);
+}
+
+function playClip(index) {
+  const playlist = state.playlist;
+  if (!playlist || !state.watchPlayer) return;
+  if (index >= playlist.clips.length) {
+    finishPlaylist();
+    return;
+  }
+  playlist.index = Math.max(0, index);
+  const clip = playlist.clips[playlist.index];
+  playlist.seeking = true;
+  renderPlaylistStatus();
+  state.watchPlayer.setCurrentTime(clip.start)
+    .then(() => {
+      if (state.playlist !== playlist) return;
+      playlist.seeking = false;
+      return state.watchPlayer.play();
+    })
+    .catch((error) => {
+      if (state.playlist !== playlist) return;
+      stopPlaylist();
+      notifyWatch(`Could not play the clip at ${formatTime(clip.tag.timestampSeconds)}: ${error.message}`, "error");
+    });
+}
+
+function advancePlaylist(currentSeconds) {
+  const playlist = state.playlist;
+  const next = playlist.index + 1;
+  if (next >= playlist.clips.length) {
+    finishPlaylist();
+    return;
+  }
+  const clip = playlist.clips[next];
+  if (clip.start <= currentSeconds && currentSeconds < clip.end) {
+    playlist.index = next;
+    renderPlaylistStatus();
+    return;
+  }
+  playClip(next);
+}
+
+function stopPlaylist() {
+  state.playlist = null;
+  renderPlaylistStatus();
+}
+
+function finishPlaylist() {
+  const total = state.playlist?.clips.length || 0;
+  state.watchPlayer?.pause().catch(() => {});
+  stopPlaylist();
+  notifyWatch(`Finished all ${plural(total, "clip")}.`, "success");
+}
+
+function renderPlaylistStatus() {
+  const playlist = state.playlist;
+  $("#playlistBar").hidden = !playlist;
+  const currentId = playlist?.clips[playlist.index]?.tag.id;
+  document.querySelectorAll(".watch-event").forEach((button) => {
+    button.classList.toggle("playing", !!currentId && button.dataset.tagId === currentId);
+  });
+  if (!playlist) return;
+  const { tag } = playlist.clips[playlist.index];
+  const who = tag.playerNames ? ` · ${tag.playerNames}` : "";
+  $("#playlistStatus").textContent = `${playlist.description}: clip ${playlist.index + 1} of ${playlist.clips.length} · ${tagEventLabel(tag)} at ${formatTime(tag.timestampSeconds)}${who}`;
+  $("#playlistPrevButton").disabled = playlist.index === 0;
+  $("#playlistNextButton").textContent = playlist.index === playlist.clips.length - 1 ? "Finish" : "Next ▶";
 }
 
 function playWatchMoment(timestampSeconds) {
   if (!state.watchPlayer) return;
+  stopPlaylist();
   const start = Math.max(0, timestampSeconds - watchLeadSeconds);
   state.watchPlayer.setCurrentTime(start).catch((error) => {
     notifyWatch(`Could not seek to ${formatTime(timestampSeconds)}: ${error.message}`, "error");
@@ -502,9 +710,10 @@ function playWatchMoment(timestampSeconds) {
 async function selectWatchVideo(recordId) {
   const record = state.records.find((item) => item.id === recordId && item.status === "published");
   state.selectedWatchId = record?.id || "";
-  state.watchTypeFilter = "";
-  state.watchPlayerFilter = "";
-  $("#watchPlayerFilter").value = "";
+  state.watchSelectedIds.clear();
+  state.watchExpandedTypes.clear();
+  state.watchReady = false;
+  stopPlaylist();
   const loadId = ++state.watchLoadId;
 
   if (state.watchPlayer) {
@@ -556,15 +765,37 @@ async function selectWatchVideo(recordId) {
     player.on("error", (error) => {
       if (loadId === state.watchLoadId) notifyWatch(`Vimeo player error: ${error.message || "The video could not be played."}`, "error");
     });
+    player.on("timeupdate", ({ seconds }) => {
+      const playlist = state.playlist;
+      if (loadId !== state.watchLoadId || !playlist || playlist.seeking) return;
+      // Only react just past the clip's end: a time far beyond it is a stale update from before a seek
+      // (e.g. after Previous), and real jumps elsewhere are handled by "seeked".
+      const { end } = playlist.clips[playlist.index];
+      if (seconds >= end && seconds < end + 3) advancePlaylist(seconds);
+    });
+    player.on("ended", () => {
+      if (loadId === state.watchLoadId && state.playlist && !state.playlist.seeking) advancePlaylist(Infinity);
+    });
+    // Moving the video by hand (outside the current clip) ends the playlist instead of fighting the viewer.
+    player.on("seeked", ({ seconds }) => {
+      const playlist = state.playlist;
+      if (loadId !== state.watchLoadId || !playlist || playlist.seeking) return;
+      const clip = playlist.clips[playlist.index];
+      if (seconds < clip.start - 1 || seconds > clip.end + 1) {
+        stopPlaylist();
+        notifyWatch("Stopped the clips because the video moved to another point.", "success");
+      }
+    });
     await player.ready();
     if (loadId !== state.watchLoadId) {
       await player.destroy();
       return;
     }
+    state.watchReady = true;
     $("#watchWholeVideoButton").disabled = false;
     $("#watchFullscreenButton").disabled = false;
-    document.querySelectorAll(".watch-event").forEach((button) => { button.disabled = false; });
-    notifyWatch(`${record.title} is ready. Choose a moment or watch the whole video.`, "success");
+    refreshWatchControls();
+    notifyWatch(`${record.title} is ready. Tick event types to play their clips back to back, or watch the whole video.`, "success");
   } catch (error) {
     if (loadId === state.watchLoadId) {
       state.watchPlayer = null;
@@ -1333,6 +1564,8 @@ async function activateSession(session) {
     state.tags = [];
     state.isDirty = false;
     state.selectedWatchId = "";
+    state.watchReady = false;
+    state.playlist = null;
     state.isSaving = false;
     exitStage();
     $("#tagPanel").classList.remove("has-video");
@@ -1503,18 +1736,52 @@ document.querySelectorAll(".tab-button").forEach((button) => {
   button.addEventListener("click", () => setTab(button.dataset.tab));
 });
 $("#watchVideoSelect").addEventListener("change", () => selectWatchVideo($("#watchVideoSelect").value));
-$("#watchTypeFilter").addEventListener("change", () => {
-  state.watchTypeFilter = $("#watchTypeFilter").value;
-  const record = currentWatchRecord();
-  if (record) renderWatchEvents(record);
+$("#playSelectedButton").addEventListener("click", () => {
+  const tags = selectedWatchTags();
+  const types = new Set(tags.map(tagEventLabel));
+  startPlaylist(tags, types.size === 1 ? [...types][0] : "Selected clips");
 });
-$("#watchPlayerFilter").addEventListener("input", () => {
-  state.watchPlayerFilter = $("#watchPlayerFilter").value;
+$("#selectAllTypesButton").addEventListener("click", () => {
   const record = currentWatchRecord();
-  if (record) renderWatchEvents(record);
+  if (!record) return;
+  const ids = watchEvents(record).map((tag) => tag.id);
+  if (ids.every((id) => state.watchSelectedIds.has(id))) state.watchSelectedIds.clear();
+  else state.watchSelectedIds = new Set(ids);
+  renderWatchEvents(record);
+});
+$("#playlistPrevButton").addEventListener("click", () => {
+  if (state.playlist) playClip(state.playlist.index - 1);
+});
+$("#playlistNextButton").addEventListener("click", () => {
+  if (state.playlist) playClip(state.playlist.index + 1);
+});
+$("#playlistStopButton").addEventListener("click", () => {
+  if (!state.playlist) return;
+  state.watchPlayer?.pause().catch(() => {});
+  stopPlaylist();
+  notifyWatch("Stopped the clips.", "success");
+});
+try {
+  const savedLength = window.localStorage.getItem(clipLengthStorageKey);
+  if (clipLengthChoices.includes(Number(savedLength))) $("#clipLength").value = savedLength;
+} catch {
+  // Storage can be unavailable (private mode); the default clip length still works.
+}
+$("#clipLength").addEventListener("change", () => {
+  // A running playlist picks up the new length from its next clip onwards.
+  const length = clipLengthSeconds();
+  if (state.playlist) {
+    for (const clip of state.playlist.clips.slice(state.playlist.index + 1)) clip.end = clip.start + length;
+  }
+  try {
+    window.localStorage.setItem(clipLengthStorageKey, String(length));
+  } catch {
+    // Remembering the choice is a convenience only.
+  }
 });
 $("#watchWholeVideoButton").addEventListener("click", () => {
   if (!state.watchPlayer) return;
+  stopPlaylist();
   state.watchPlayer.setCurrentTime(0).catch((error) => {
     notifyWatch(`Could not rewind the video: ${error.message}`, "error");
   });

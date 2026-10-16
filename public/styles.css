@@ -126,7 +126,7 @@ body.stage-open { overflow: hidden; }
 #watchWorkspace.stage-mode { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); grid-template-rows: minmax(0, 1fr); align-items: stretch; gap: 12px; }
 #watchWorkspace.stage-mode .watch-player-card { display: flex; min-height: 0; flex-direction: column; }
 #watchWorkspace.stage-mode .watch-events-card { display: flex; min-height: 0; flex-direction: column; }
-#watchWorkspace.stage-mode .watch-event-list { flex: 1; max-height: none; }
+#watchWorkspace.stage-mode .watch-groups { flex: 1; min-height: 0; max-height: none; }
 @media (max-width: 900px), (orientation: portrait) {
   #tagger.stage-mode, #watchWorkspace.stage-mode { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 55fr) minmax(0, 45fr); }
 }
@@ -212,11 +212,31 @@ kbd { border: 1px solid #59704e; border-radius: 4px; padding: 2px 6px; color: #2
 .watch-player-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .watch-player-card .video-frame { width: 100%; }
 .watch-events-hint { margin: 0; border-top: 1px solid var(--line); padding: 11px 14px; color: var(--soft); font-size: 13px; }
-.watch-filters { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 10px; border-top: 1px solid var(--line); padding: 12px 14px; }
-.watch-filters label { color: var(--muted); font-size: 13px; }
-.watch-filters select, .watch-filters input { width: 100%; padding: 8px 10px; font-size: 13px; }
-.watch-event-list { display: grid; max-height: min(68vh, 680px); overflow: auto; margin: 0; padding: 0 14px; list-style: none; }
+.watch-playlist-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; border-top: 1px solid var(--line); padding: 12px 14px; }
+.watch-playlist-controls .button { margin-left: auto; min-height: 40px; }
+.watch-playlist-controls .link-button { margin: 0; font-size: 13px; }
+.clip-length-label { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.clip-length-label select { padding: 7px 10px; font-size: 13px; }
+.playlist-bar { display: grid; gap: 8px; border-top: 1px solid var(--line); padding: 12px 14px; background: #a8f27712; }
+.playlist-status { margin: 0; color: var(--green); font-size: 14px; font-weight: 600; line-height: 1.45; }
+.playlist-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.playlist-buttons .player-button { min-height: 36px; padding: 0 12px; font-size: 13px; }
+.watch-groups { display: grid; align-content: start; gap: 8px; max-height: min(68vh, 680px); overflow: auto; border-top: 1px solid var(--line); padding: 12px 14px; }
+.watch-group { border: 1px solid var(--line); border-radius: 8px; background: #121914a0; }
+.watch-group-header { display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 4px 8px 4px 4px; }
+.watch-group-toggle { width: 36px; height: 36px; flex: 0 0 auto; border: 0; border-radius: 6px; color: var(--muted); background: transparent; cursor: pointer; font-size: 15px; }
+.watch-group-toggle:hover { color: var(--text); background: #1c251f; }
+.watch-group-select { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; font-weight: 700; }
+.watch-group-select input { width: 18px; height: 18px; flex: 0 0 auto; margin: 0; padding: 0; accent-color: var(--green); }
+.watch-group-select span:first-of-type { overflow-wrap: anywhere; }
+.watch-group-play { flex: 0 0 auto; min-height: 34px; border: 1px solid #3c5640; border-radius: 30px; padding: 0 12px; color: var(--text); background: #a8f2771a; cursor: pointer; font-size: 13px; font-weight: 700; }
+.watch-group-play:hover:not(:disabled) { border-color: var(--green); background: #a8f27733; }
+.watch-group-play:disabled { opacity: .45; cursor: not-allowed; }
+.watch-event-list { display: grid; margin: 0; padding: 0 10px 6px 14px; list-style: none; }
 .watch-event-list li + li { border-top: 1px solid #263029; }
+.watch-event-item { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: start; }
+.watch-event-pick { width: 18px; height: 18px; margin: 14px 0 0 2px; padding: 0; accent-color: var(--green); cursor: pointer; }
+.watch-event.playing { color: var(--green); background: #a8f2771a; box-shadow: inset 3px 0 0 var(--green); }
 .watch-event { width: 100%; min-height: 44px; display: grid; grid-template-columns: 56px minmax(0, 1fr); align-items: start; gap: 10px; border: 0; padding: 12px 2px; text-align: left; background: transparent; cursor: pointer; }
 .watch-event:hover, .watch-event:focus-visible { color: var(--green); }
 .watch-event:disabled { cursor: not-allowed; opacity: .55; }
