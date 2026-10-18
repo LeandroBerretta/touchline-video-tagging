@@ -305,18 +305,19 @@
             <h1 id="watchHeading">Watch a match</h1>
             <p class="subtitle">Choose a published video to watch from the beginning or jump to a tagged moment.</p>
           </div>
-          <label class="watch-select-label" for="watchVideoSelect">
-            SELECT VIDEO
-            <select id="watchVideoSelect">
-              <option value="">Choose a published video…</option>
+          <label id="watchTeamFilterLabel" class="watch-select-label" for="watchTeamFilter" hidden>
+            TEAM
+            <select id="watchTeamFilter">
+              <option value="">All teams</option>
             </select>
           </label>
         </div>
+        <div id="watchVideoList" class="watch-video-list" aria-label="Published videos"></div>
         <div id="watchNotice" class="notice" role="status" aria-live="polite"></div>
         <div id="watchEmpty" class="watch-empty">
           <span class="play-emblem" aria-hidden="true">▶</span>
           <h2>No published video selected</h2>
-          <p>Choose a published video above, or publish one from the Tag videos tab.</p>
+          <p>Choose a video above. Videos appear here once they are published in the Tag videos tab.</p>
         </div>
         <div id="watchWorkspace" class="watch-workspace" hidden>
           <section class="watch-player-card" aria-labelledby="watchVideoTitle">
@@ -340,8 +341,22 @@
                 <button id="watchZoomReset" class="player-button" type="button" title="Back to the whole picture">Reset</button>
               </span>
             </div>
+            <div id="watchTimeline" class="timeline" hidden>
+              <div class="timeline-head">
+                <span>Moments on the match timeline · click to jump there</span>
+                <span id="watchTimelineHalf"></span>
+              </div>
+              <div id="watchTimelineBar" class="timeline-bar" role="group" aria-label="Moments on the match timeline">
+                <div id="watchTimelineNow" class="timeline-now" aria-hidden="true"></div>
+              </div>
+              <div class="timeline-key" aria-hidden="true">
+                <span class="timeline-key-done">event</span>
+                <span class="timeline-key-goal">goal</span>
+                <span class="timeline-key-playing">playing now</span>
+              </div>
+            </div>
           </section>
-          <section class="watch-events-card" aria-labelledby="watchEventsHeading">
+          <section id="watchEventsCard" class="watch-events-card" aria-labelledby="watchEventsHeading">
             <div class="watch-events-heading">
               <div>
                 <p class="eyebrow">TAGGED MOMENTS</p>
@@ -351,6 +366,20 @@
             <div class="watch-view-switch" role="group" aria-label="Show">
               <button id="watchViewEventsButton" class="view-switch-button" type="button" aria-pressed="true">Events</button>
               <button id="watchViewStatsButton" class="view-switch-button" type="button" aria-pressed="false">Stats</button>
+            </div>
+            <div class="clip-controls">
+              <label class="clip-length-label" for="clipLength">
+                Clip length
+                <select id="clipLength">
+                  <option value="5">5 seconds</option>
+                  <option value="10">10 seconds</option>
+                  <option value="15">15 seconds</option>
+                  <option value="20" selected>20 seconds</option>
+                  <option value="30">30 seconds</option>
+                  <option value="45">45 seconds</option>
+                </select>
+              </label>
+              <button id="chooseClipsButton" class="view-switch-button" type="button" aria-pressed="false">Choose clips</button>
             </div>
             <div id="playlistBar" class="playlist-bar" hidden>
               <p id="playlistStatus" class="playlist-status" role="status" aria-live="polite"></p>
@@ -362,19 +391,8 @@
               </div>
             </div>
             <div id="watchEventsView" class="watch-view">
-              <p class="watch-events-hint">Tick whole event types, or open a type and tick single events, then play them back to back. Click an event itself to play just that one. Each clip starts 3 seconds before its moment.</p>
+              <p class="watch-events-hint">Play a whole event type with ▶ Play, or open a type and click an event to play just that one. Choose clips lets you tick any mix and play or save them. Each clip starts 3 seconds before its moment.</p>
               <div id="watchPlaylistControls" class="watch-playlist-controls" hidden>
-                <label class="clip-length-label" for="clipLength">
-                  Clip length
-                  <select id="clipLength">
-                    <option value="5">5 seconds</option>
-                    <option value="10">10 seconds</option>
-                    <option value="15">15 seconds</option>
-                    <option value="20" selected>20 seconds</option>
-                    <option value="30">30 seconds</option>
-                    <option value="45">45 seconds</option>
-                  </select>
-                </label>
                 <button id="selectAllTypesButton" class="link-button" type="button">Select all</button>
                 <button id="savePlaylistButton" class="button button-outline" type="button" hidden disabled>Save as playlist</button>
                 <button id="playSelectedButton" class="button button-primary" type="button" disabled>▶ Play selected</button>

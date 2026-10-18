@@ -254,7 +254,7 @@ row-level security, not only by the UI.
 
 ```mermaid
 flowchart TD
-  A[Watch view] --> B[Select a published video]
+  A[Watch view] --> B[Pick a published video card, newest first, optional team filter]
   B --> C[Embed Vimeo player; list events in folded groups by event type]
   C --> D{Player ready?}
   D -- No --> D1[Show error, play buttons stay disabled]
@@ -280,6 +280,13 @@ Notes:
   length, and its button shows the running time, counting overlapping clips once.
 
 - Groups follow the event-type list order (custom types last) and start folded.
+- A timeline under the video shows every tagged moment (markers aside; goals
+  white, Half-time line). A tick plays that moment (3 s lead); the bar seeks;
+  the playing clip's tick is highlighted.
+- Tick boxes, Select all, Play selected and Save as playlist only show after
+  Choose clips (remembered per device). Clip length sits above the views and
+  applies to Events and Stats. The playlist bar stays in view (pinned to the
+  bottom of the screen on phones and tablets) while clips play.
 - Every event has its own tick box; a group's tick box selects all its events
   and shows a partly-ticked state (count like `2/8`) when only some are picked.
 - Clip length is 5, 10, 15, 20, 30 or 45 seconds, remembered per browser. Changing

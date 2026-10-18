@@ -49,6 +49,7 @@ const quickKeys = ["q", "w", "e", "r", "t", "y", "u", "i", "o"];
 const quickTypesStorageKey = "touchline.quickTypes";
 const pauseOnMarkStorageKey = "touchline.pauseOnMark";
 const tagViewStorageKey = "touchline.tagView";
+const watchChoosingStorageKey = "touchline.watchChoosing";
 const markOffsetChoices = [0, 3, 5, 10];
 const markOffsetStorageKey = "touchline.markOffsetSeconds";
 const libraryHiddenStorageKey = "touchline.libraryHidden";
@@ -88,6 +89,9 @@ const state = {
   shiftNumber: false,
   bulkIds: new Set(),
   tagView: "match",
+  watchTeamFilter: "",
+  watchDuration: 0,
+  watchChoosing: false,
   expandedTagId: "",
   changeCount: 0,
   dirtySince: null,
@@ -719,16 +723,55 @@ function renderPlayerSuggestions() {
     .map((name) => new Option(name)));
 }
 
+// Published videos as a list of cards, newest first, with a team filter once there is more than one team.
+function renderWatchVideoList() {
+  const teams = state.teams.filter((team) => state.records.some((record) => record.status === "published" && record.teamId === team.id));
+  const filter = $("#watchTeamFilter");
+  $("#watchTeamFilterLabel").hidden = teams.length < 2;
+  if (!teams.some((team) => team.id === state.watchTeamFilter)) state.watchTeamFilter = "";
+  filter.replaceChildren(new Option("All teams", ""), ...teams.map((team) => new Option(team.name, team.id)));
+  filter.value = state.watchTeamFilter;
+
+  const published = state.records
+    .filter((record) => record.status === "published" && (!state.watchTeamFilter || record.teamId === state.watchTeamFilter))
+    .sort((first, second) => (second.publishedAt || second.updatedAt || "").localeCompare(first.publishedAt || first.updatedAt || ""));
+  const list = $("#watchVideoList");
+  if (!published.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = state.records.some((record) => record.status === "published")
+      ? "No published videos for this team."
+      : "No published videos yet.";
+    list.replaceChildren(empty);
+    return;
+  }
+  list.replaceChildren(...published.map((record) => {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "watch-video-card";
+    const selected = record.id === state.selectedWatchId;
+    card.classList.toggle("active", selected);
+    if (selected) card.setAttribute("aria-current", "true");
+    const title = document.createElement("strong");
+    title.textContent = record.title;
+    const team = state.teams.find((item) => item.id === record.teamId)?.name;
+    const moments = record.tags.filter((tag) => isComplete(tag) && !markerTypes.has(tag.eventType)).length;
+    const when = record.publishedAt || record.updatedAt;
+    const details = document.createElement("span");
+    details.textContent = [team, when ? new Date(when).toLocaleDateString() : "", plural(moments, "moment")].filter(Boolean).join(" · ");
+    card.append(title, details);
+    card.addEventListener("click", () => {
+      if (record.id !== state.selectedWatchId) selectWatchVideo(record.id);
+    });
+    return card;
+  }));
+}
+
 function renderWatchVideoOptions() {
   const published = state.records.filter((record) => record.status === "published");
   const selectionExists = published.some((record) => record.id === state.selectedWatchId);
   const selectedId = selectionExists ? state.selectedWatchId : "";
-  const selector = $("#watchVideoSelect");
-  selector.replaceChildren(new Option("Choose a published video…", ""));
-  for (const record of published) {
-    selector.add(new Option(`${record.title} (${plural(record.tags.filter(isComplete).length, "moment")})`, record.id));
-  }
-  selector.value = selectedId;
+  renderWatchVideoList();
   if (selectedId) {
     const selectedRecord = published.find((record) => record.id === selectedId);
     $("#watchVideoTitle").textContent = selectedRecord.title;
@@ -1411,6 +1454,7 @@ function renderWatchEvents(record) {
   }));
   renderSavedPlaylists(record);
   renderWatchStats(record);
+  renderWatchTimeline(record);
   refreshWatchControls();
   renderPlaylistStatus();
 }
@@ -1770,7 +1814,6 @@ async function openLinkedPlaylist() {
   }
   state.linkedPlaylistId = id;
   setWatchView("events");
-  $("#watchVideoSelect").value = record.id;
   await selectWatchVideo(record.id);
   if (state.selectedWatchId !== record.id) return;
   renderWatchEvents(record);
@@ -1853,9 +1896,10 @@ function renderPlaylistStatus() {
   const playlist = state.playlist;
   $("#playlistBar").hidden = !playlist;
   const currentId = playlist?.clips[playlist.index]?.tag.id;
-  document.querySelectorAll(".watch-event").forEach((button) => {
+  document.querySelectorAll(".watch-event, #watchTimelineBar .timeline-tick").forEach((button) => {
     button.classList.toggle("playing", !!currentId && button.dataset.tagId === currentId);
   });
+  document.body.classList.toggle("playlist-playing", !!playlist);
   if (!playlist) return;
   $("#playlistNoteText").textContent = playlist.note;
   $("#playlistNoteText").hidden = !playlist.note;
@@ -1884,6 +1928,7 @@ function playWatchMoment(timestampSeconds) {
 async function selectWatchVideo(recordId) {
   const record = state.records.find((item) => item.id === recordId && item.status === "published");
   state.selectedWatchId = record?.id || "";
+  renderWatchVideoList();
   state.watchSelectedIds.clear();
   state.watchExpandedTypes.clear();
   if (state.linkedPlaylistId) {
@@ -1891,6 +1936,7 @@ async function selectWatchVideo(recordId) {
     if (linked?.videoId !== state.selectedWatchId) state.linkedPlaylistId = "";
   }
   state.watchReady = false;
+  state.watchDuration = 0;
   stopPlaylist();
   const loadId = ++state.watchLoadId;
 
@@ -1945,6 +1991,9 @@ async function selectWatchVideo(recordId) {
       if (loadId === state.watchLoadId) notifyWatch(`Vimeo player error: ${error.message || "The video could not be played."}`, "error");
     });
     player.on("timeupdate", ({ seconds }) => {
+      if (loadId === state.watchLoadId && state.watchDuration) {
+        $("#watchTimelineNow").style.left = `${Math.min(100, Math.max(0, (seconds / state.watchDuration) * 100))}%`;
+      }
       const playlist = state.playlist;
       if (loadId !== state.watchLoadId || !playlist || playlist.seeking) return;
       // Only react just past the clip's end: a time far beyond it is a stale update from before a seek
@@ -1971,6 +2020,9 @@ async function selectWatchVideo(recordId) {
       return;
     }
     state.watchReady = true;
+    state.watchDuration = await player.getDuration().catch(() => 0);
+    if (loadId !== state.watchLoadId) return;
+    renderWatchTimeline(record);
     $("#watchWholeVideoButton").disabled = false;
     $("#watchFullscreenButton").disabled = false;
     refreshWatchControls();
@@ -2681,6 +2733,47 @@ function renderTimeline() {
     });
     bar.append(tick);
   }
+}
+
+// The same timeline under the Watch video: one tick per tagged moment (markers aside), goals white.
+// A tick plays that moment like clicking it in the list; the bar seeks; the playing clip's tick lights up.
+function renderWatchTimeline(record) {
+  const bar = $("#watchTimelineBar");
+  const duration = state.watchDuration;
+  const show = !!record && duration > 0;
+  $("#watchTimeline").hidden = !show;
+  bar.querySelectorAll(".timeline-tick, .timeline-half").forEach((element) => element.remove());
+  if (!show) return;
+  const percent = (seconds) => `${Math.min(100, Math.max(0, (seconds / duration) * 100))}%`;
+  const tags = watchEvents(record);
+  const halfTime = tags.find((tag) => tag.eventType === "half_time")?.timestampSeconds ?? null;
+  $("#watchTimelineHalf").textContent = halfTime === null ? "" : `Half-time ${formatTime(halfTime)}`;
+  if (halfTime !== null) {
+    const line = document.createElement("div");
+    line.className = "timeline-half";
+    line.style.left = percent(halfTime);
+    bar.append(line);
+  }
+  for (const tag of tags) {
+    if (markerTypes.has(tag.eventType)) continue;
+    const tick = document.createElement("button");
+    tick.type = "button";
+    tick.className = "timeline-tick";
+    tick.dataset.tagId = tag.id;
+    if (tag.eventType === "goal") tick.classList.add("goal");
+    tick.style.left = percent(tag.timestampSeconds);
+    const who = tag.playerNames ? ` · ${tag.playerNames}` : "";
+    const label = `${formatTime(tag.timestampSeconds)} ${tagEventLabel(tag)}${who}`;
+    tick.title = label;
+    tick.setAttribute("aria-label", `Play ${label}`);
+    tick.disabled = !state.watchReady;
+    tick.addEventListener("click", (event) => {
+      event.stopPropagation();
+      playWatchMoment(tag.timestampSeconds);
+    });
+    bar.append(tick);
+  }
+  renderPlaylistStatus();
 }
 
 // Once a video is open, its form folds into a title; Edit details opens it again.
@@ -3531,7 +3624,28 @@ $("#queueVideoButton").addEventListener("click", addToQueue);
 document.querySelectorAll(".tab-button").forEach((button) => {
   button.addEventListener("click", () => setTab(button.dataset.tab));
 });
-$("#watchVideoSelect").addEventListener("change", () => selectWatchVideo($("#watchVideoSelect").value));
+$("#watchTeamFilter").addEventListener("change", () => {
+  state.watchTeamFilter = $("#watchTeamFilter").value;
+  renderWatchVideoList();
+});
+// Choose clips: tick boxes, Select all, Play selected and Save as playlist only show in this mode.
+function setWatchChoosing(on) {
+  state.watchChoosing = on;
+  $("#watchEventsCard").classList.toggle("choosing", on);
+  $("#chooseClipsButton").setAttribute("aria-pressed", String(on));
+  $("#chooseClipsButton").textContent = on ? "Done choosing" : "Choose clips";
+  try {
+    window.localStorage.setItem(watchChoosingStorageKey, String(on));
+  } catch {
+    // Remembering the mode is a convenience only.
+  }
+}
+$("#chooseClipsButton").addEventListener("click", () => setWatchChoosing(!state.watchChoosing));
+try {
+  setWatchChoosing(window.localStorage.getItem(watchChoosingStorageKey) === "true");
+} catch {
+  setWatchChoosing(false);
+}
 $("#playSelectedButton").addEventListener("click", () => {
   const tags = selectedWatchTags();
   const types = new Set(tags.map(tagEventLabel));
@@ -3675,6 +3789,12 @@ $("#editDetailsButton").addEventListener("click", () => {
   if ($("#tagPanel").classList.contains("editing-details")) $("#videoName").focus();
 });
 $("#videoName").addEventListener("input", () => renderVideoHeader());
+$("#watchTimelineBar").addEventListener("click", (event) => {
+  if (!state.watchPlayer || !state.watchDuration || !state.watchReady) return;
+  const box = $("#watchTimelineBar").getBoundingClientRect();
+  const seconds = ((event.clientX - box.left) / box.width) * state.watchDuration;
+  state.watchPlayer.setCurrentTime(Math.max(0, Math.min(state.watchDuration, seconds))).catch(() => {});
+});
 $("#timelineBar").addEventListener("mousedown", (event) => event.preventDefault());
 $("#timelineBar").addEventListener("click", (event) => {
   if (!state.player || !state.videoDuration) return;
