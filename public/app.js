@@ -34,9 +34,14 @@ const eventTypes = [
   ["clearance", "Clearance"],
   ["block", "Block"],
   ["substitution", "Substitution"],
+  ["half_time", "Half-time"],
   ["end_of_game", "End of game"],
   ["other", "Other"],
 ];
+// Markers frame the match (halves for stats) and are not counted as events.
+const markerTypes = new Set(["start_of_game", "half_time", "end_of_game"]);
+// New videos get a Start of game moment here; admins move it with Edit if the game starts elsewhere.
+const defaultStartOfGameSeconds = 10;
 // Shown as one-tap buttons on moments that still need a type.
 const quickEventTypes = ["throw_in", "kick_off", "corner", "shot_off_target", "shot_on_target", "goal"];
 const markOffsetChoices = [0, 3, 5, 10];
@@ -70,6 +75,7 @@ const state = {
   playlists: [],
   playlistsAvailable: true,
   linkedPlaylistId: "",
+  watchView: "events",
   activeTab: "tag",
   activeRecord: null,
   records: [],
@@ -349,7 +355,19 @@ function refreshActions() {
 // and it moves to In progress as soon as it is saved with a moment.
 function librarySection(record) {
   if (record.status === "published") return "published";
-  return record.tags.length ? "in_progress" : "queued";
+  return record.tags.some((tag) => !markerTypes.has(tag.eventType)) ? "in_progress" : "queued";
+}
+
+function startOfGameTag() {
+  return {
+    id: crypto.randomUUID(),
+    timestampSeconds: defaultStartOfGameSeconds,
+    eventType: "start_of_game",
+    customEventType: "",
+    playerNames: "",
+    note: "",
+    done: true,
+  };
 }
 
 async function addToQueue() {
@@ -376,7 +394,7 @@ async function addToQueue() {
   try {
     const { error } = await supabase
       .from("videos")
-      .insert({ name: title, vimeo_url: vimeoUrl, status: "in_progress", tags: [] });
+      .insert({ name: title, vimeo_url: vimeoUrl, status: "in_progress", tags: [serializeTag(startOfGameTag())] });
     if (error) throw error;
     $("#videoName").value = "";
     $("#videoUrl").value = "";
@@ -424,7 +442,7 @@ function renderLibrary() {
       details.textContent = status === "queued"
         ? `Added ${new Date(record.createdAt).toLocaleDateString()}`
         : [
-          plural(record.tags.length, "moment"),
+          plural(record.tags.filter((tag) => !markerTypes.has(tag.eventType)).length, "moment"),
           incomplete ? `${incomplete} need${incomplete === 1 ? "s" : ""} a type` : "",
           `Updated ${new Date(record.updatedAt).toLocaleDateString()}`,
         ].filter(Boolean).join(" · ");
@@ -630,7 +648,7 @@ function refreshWatchControls() {
   $("#selectAllTypesButton").textContent = total && selected.length === total ? "Clear selection" : "Select all";
   $("#savePlaylistButton").hidden = state.role !== "admin";
   $("#savePlaylistButton").disabled = !selected.length || !state.playlistsAvailable;
-  document.querySelectorAll(".watch-event, .watch-group-play").forEach((button) => { button.disabled = !ready; });
+  document.querySelectorAll(".watch-event, .watch-group-play, .stat-play").forEach((button) => { button.disabled = !ready; });
 }
 
 function renderWatchEvents(record) {
@@ -757,9 +775,148 @@ function renderWatchEvents(record) {
     group.append(header, list);
     return group;
   }));
-  refreshWatchControls();
   renderSavedPlaylists(record);
+  renderWatchStats(record);
+  refreshWatchControls();
   renderPlaylistStatus();
+}
+
+function setWatchView(view) {
+  state.watchView = view;
+  $("#watchEventsView").hidden = view !== "events";
+  $("#watchStatsView").hidden = view !== "stats";
+  $("#watchViewEventsButton").setAttribute("aria-pressed", String(view === "events"));
+  $("#watchViewStatsButton").setAttribute("aria-pressed", String(view === "stats"));
+}
+
+// A count that plays its clips back to back when clicked.
+function statCount(tags, description) {
+  if (!tags.length) {
+    const zero = document.createElement("span");
+    zero.className = "stat-zero";
+    zero.textContent = "0";
+    return zero;
+  }
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "stat-play";
+  button.textContent = tags.length;
+  button.title = `Play these ${plural(tags.length, "clip")}`;
+  button.setAttribute("aria-label", `${description}: ${tags.length}. Play these clips`);
+  button.addEventListener("click", () => startPlaylist(tags, description));
+  return button;
+}
+
+// Counts the video's events by type (split by half when Half-time is tagged) and by player.
+// Markers (Start of game, Half-time, End of game) only set the boundaries and are never counted.
+function renderWatchStats(record) {
+  const container = $("#watchStatsView");
+  const all = watchEvents(record);
+  const halfTime = all.find((tag) => tag.eventType === "half_time")?.timestampSeconds ?? null;
+  const counted = all.filter((tag) => !markerTypes.has(tag.eventType));
+  if (!counted.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = "No events to count yet.";
+    container.replaceChildren(empty);
+    return;
+  }
+  const inHalf = (tags, half) => tags.filter((tag) => (tag.timestampSeconds < halfTime ? 1 : 2) === half);
+
+  const byType = new Map();
+  for (const tag of counted) {
+    const label = tagEventLabel(tag);
+    if (!byType.has(label)) byType.set(label, []);
+    byType.get(label).push(tag);
+  }
+  const typeRows = [...byType.entries()].sort(([firstLabel, [first]], [secondLabel, [second]]) =>
+    groupOrder(first) - groupOrder(second) || firstLabel.localeCompare(secondLabel));
+
+  const eventsHeading = document.createElement("h3");
+  eventsHeading.className = "stats-heading";
+  eventsHeading.textContent = "Events";
+  const hint = document.createElement("p");
+  hint.className = "stats-hint";
+  hint.textContent = halfTime === null
+    ? "Totals for the whole video. Tag Half-time in the Tag view to split these by half. Click a number to play those clips."
+    : `Split at Half-time (${formatTime(halfTime)}). Click a number to play those clips.`;
+
+  const tableWrap = document.createElement("div");
+  tableWrap.className = "stats-table-wrap";
+  const table = document.createElement("table");
+  table.className = "stats-table";
+  const columns = halfTime === null ? ["Event", "Total"] : ["Event", "1st half", "2nd half", "Total"];
+  const head = table.createTHead().insertRow();
+  for (const name of columns) {
+    const cell = document.createElement("th");
+    cell.scope = "col";
+    cell.textContent = name;
+    head.append(cell);
+  }
+  const body = table.createTBody();
+  const addRow = (label, tags, className = "") => {
+    const row = body.insertRow();
+    if (className) row.className = className;
+    const name = document.createElement("th");
+    name.scope = "row";
+    name.textContent = label;
+    row.append(name);
+    if (halfTime !== null) {
+      row.insertCell().append(statCount(inHalf(tags, 1), `${label}, 1st half`));
+      row.insertCell().append(statCount(inHalf(tags, 2), `${label}, 2nd half`));
+    }
+    row.insertCell().append(statCount(tags, label));
+  };
+  for (const [label, tags] of typeRows) addRow(label, tags);
+  addRow("All events", counted, "stats-total");
+  tableWrap.append(table);
+
+  // Players: names are split on commas and matched ignoring case and extra spaces;
+  // a moment naming two players counts for both.
+  const players = new Map();
+  const unnamed = [];
+  for (const tag of counted) {
+    const names = (tag.playerNames || "").split(",").map((name) => name.trim().replace(/\s+/g, " ")).filter(Boolean);
+    if (!names.length) unnamed.push(tag);
+    for (const name of new Set(names.map((item) => item.toLowerCase()))) {
+      if (!players.has(name)) players.set(name, { name: names.find((item) => item.toLowerCase() === name), tags: [] });
+      players.get(name).tags.push(tag);
+    }
+  }
+  const playerRows = [...players.values()].sort((first, second) =>
+    second.tags.length - first.tags.length || first.name.localeCompare(second.name));
+  if (unnamed.length) playerRows.push({ name: "No player named", tags: unnamed, unnamed: true });
+
+  const playersHeading = document.createElement("h3");
+  playersHeading.className = "stats-heading";
+  playersHeading.textContent = "By player";
+  const playerList = document.createElement("ul");
+  playerList.className = "stats-players";
+  playerList.append(...playerRows.map((player) => {
+    const item = document.createElement("li");
+    item.classList.toggle("stats-unnamed", !!player.unnamed);
+    const top = document.createElement("div");
+    top.className = "stats-player-top";
+    const name = document.createElement("span");
+    name.className = "stats-player-name";
+    name.textContent = player.name;
+    top.append(name, statCount(player.tags, player.name));
+    const breakdown = new Map();
+    for (const tag of player.tags) {
+      const label = tagEventLabel(tag);
+      breakdown.set(label, (breakdown.get(label) || 0) + 1);
+    }
+    const detail = document.createElement("span");
+    detail.className = "stats-player-detail";
+    detail.textContent = [...breakdown.entries()]
+      .sort(([firstLabel, firstCount], [secondLabel, secondCount]) => secondCount - firstCount || firstLabel.localeCompare(secondLabel))
+      .map(([label, count]) => `${label} ${count}`)
+      .join(" · ");
+    item.append(top, detail);
+    return item;
+  }));
+
+  container.replaceChildren(eventsHeading, hint, tableWrap, playersHeading, playerList);
 }
 
 function mapPlaylist(row) {
@@ -967,6 +1124,7 @@ async function openLinkedPlaylist() {
     return;
   }
   state.linkedPlaylistId = id;
+  setWatchView("events");
   $("#watchVideoSelect").value = record.id;
   await selectWatchVideo(record.id);
   if (state.selectedWatchId !== record.id) return;
@@ -1734,6 +1892,9 @@ async function openVideo(value, record = null) {
 
   state.video = video;
   state.tags = record ? (record.tags || []).map(normalizeTag).sort(byTime) : [];
+  // A video with no moments yet starts with Start of game at 00:10. It is not an unsaved change on its
+  // own: if the admin leaves without saving, it is simply added again next time.
+  if (!state.tags.length) state.tags = [startOfGameTag()];
   state.activeRecord = record || {
     id: crypto.randomUUID(),
     title: $("#videoName").value.trim(),
@@ -2148,6 +2309,8 @@ $("#playSelectedButton").addEventListener("click", () => {
   const types = new Set(tags.map(tagEventLabel));
   startPlaylist(tags, types.size === 1 ? [...types][0] : "Selected clips");
 });
+$("#watchViewEventsButton").addEventListener("click", () => setWatchView("events"));
+$("#watchViewStatsButton").addEventListener("click", () => setWatchView("stats"));
 $("#savePlaylistButton").addEventListener("click", openPlaylistDialog);
 $("#playlistForm").addEventListener("submit", savePlaylist);
 $("#cancelPlaylistButton").addEventListener("click", () => $("#playlistDialog").close());

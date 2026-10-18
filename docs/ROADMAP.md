@@ -8,7 +8,7 @@ done, mark it and pick the next together.
 | # | Feature | Status |
 | --- | --- | --- |
 | 1 | **Saved, shareable playlists with a coach's note.** Save a set of clips with a title and note; anyone with an account opens it from a link. | Shipped 2026-10-17 |
-| 2 | **Stats summary per video.** Counts by event type and player (and by half, using Start/End of game), with CSV download. | Next up |
+| 2 | **Stats summary per video.** Counts by event type and player, split by half when Half-time is tagged; every count plays its clips. CSV download dropped by decision. | Shipped 2026-10-17 |
 | 3 | **Squad list.** Pick players from a roster instead of typing names, so per-player clips and stats are reliable. Needs a small database change. | Planned |
 | 4 | **Pitch location when tagging.** Tap a small pitch diagram to record where an event happened; show simple maps (e.g. shots). | Planned |
 | 5 | **Drawing on a paused frame.** Arrows, circles and freehand saved with a moment and shown when its clip plays. Cannot follow players or be burned into the Vimeo video. | Planned |

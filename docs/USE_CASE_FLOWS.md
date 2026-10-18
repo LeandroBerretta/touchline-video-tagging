@@ -254,6 +254,20 @@ Notes:
 - Overlapping clips run on without jumping back; the playing event is
   highlighted and the playlist bar shows "clip n of total".
 
+### Stats
+
+The **Stats** view (Events | Stats switch in Watch, for admins and viewers)
+counts the video's events by type and by player. If a **Half-time** moment
+exists, the event table splits into 1st half, 2nd half and total; otherwise it
+shows totals only. Start of game, Half-time and End of game are markers and are
+never counted. Player names are split on commas and matched ignoring case and
+extra spaces; a moment naming two players counts for both. Every count plays
+its clips back to back.
+
+New videos (opened new in Tag or added to the queue) get a Start of game moment
+at 00:10 automatically, already in Done; it can be moved with Edit. Markers do
+not move a video out of Not started.
+
 ### Saved playlists
 
 Admins can save the ticked clips as a playlist with a title, an optional note
