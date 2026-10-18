@@ -254,6 +254,27 @@ Notes:
 - Overlapping clips run on without jumping back; the playing event is
   highlighted and the playlist bar shows "clip n of total".
 
+### Saved playlists
+
+Admins can save the ticked clips as a playlist with a title, an optional note
+and the current clip length (needs `database/003_playlists.sql`). Viewers can
+read a playlist only while its video is published; this is enforced by
+row-level security.
+
+```mermaid
+flowchart TD
+  A[Admin ticks clips in Watch] --> B[Save as playlist: title, note]
+  B --> C[Playlist listed under Playlists for that video]
+  C --> D[Copy link: site address + #playlist-id]
+  D --> E[Someone opens the link]
+  E --> F{Signed in?}
+  F -- No --> G[Sign in] --> H
+  F -- Yes --> H{Playlist exists and video published?}
+  H -- No --> H1[Message: link no longer works]
+  H -- Yes --> I[Watch opens on the video, playlist highlighted]
+  I --> J[Press Play: clips back to back, coach's note shown]
+```
+
 ## UC8 Sign out
 
 ```mermaid

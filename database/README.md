@@ -8,6 +8,9 @@ Run them in order from the Supabase SQL Editor:
 2. `002_assign_roles.sql` is a template for assigning the `admin` and `viewer`
    roles. Replace both UUID placeholders with the corresponding Supabase Auth
    user IDs before running it.
+3. `003_playlists.sql` adds saved playlists. Admins can create and delete
+   them; viewers can read a playlist only while its video is published. Safe to
+   rerun. Until it has been run, the app works but cannot save playlists.
 
 The viewer role can read published videos only. The admin role can read and
 manage all videos. Database row-level security enforces these permissions.

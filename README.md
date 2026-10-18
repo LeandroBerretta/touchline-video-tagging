@@ -18,6 +18,8 @@ cloud video library. The videos remain hosted by Vimeo.
 1. Create the database and permissions by running `database/001_schema.sql` in
    the Supabase SQL Editor. The script is safe to rerun and adds `published_at`
    if the table was created from an earlier version.
+   Then run `database/003_playlists.sql` to enable saved, shareable
+   playlists.
 2. Create one admin and one viewer in **Authentication → Users**.
 3. Copy their Auth user IDs into `database/002_assign_roles.sql` and run it.
    Never add passwords or secret/service-role keys to the repository.

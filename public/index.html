@@ -54,6 +54,23 @@
         </form>
       </dialog>
 
+      <dialog id="playlistDialog" class="password-dialog" aria-labelledby="playlistDialogHeading">
+        <form id="playlistForm" class="login-form">
+          <h2 id="playlistDialogHeading">Save as playlist</h2>
+          <p id="playlistDialogSummary" class="subtitle"></p>
+          <label for="playlistTitle">Title</label>
+          <input id="playlistTitle" name="playlistTitle" type="text" maxlength="120" required placeholder="e.g. Maya: first touch under pressure">
+          <label for="playlistNote">Note for the player (optional)</label>
+          <textarea id="playlistNote" name="playlistNote" maxlength="1000" rows="4" placeholder="What should they look for in these clips?"></textarea>
+          <p class="form-hint">Anyone with a Touchline account can open it from its link while the video is published.</p>
+          <p id="playlistDialogNotice" class="notice error" role="alert"></p>
+          <div class="dialog-actions">
+            <button id="cancelPlaylistButton" class="button button-outline" type="button">Cancel</button>
+            <button id="savePlaylistSubmit" class="button button-primary" type="submit">Save playlist</button>
+          </div>
+        </form>
+      </dialog>
+
       <datalist id="playerNameOptions"></datalist>
 
       <div id="appShell" hidden>
@@ -227,10 +244,13 @@
                 </select>
               </label>
               <button id="selectAllTypesButton" class="link-button" type="button">Select all</button>
+              <button id="savePlaylistButton" class="button button-outline" type="button" hidden disabled>Save as playlist</button>
               <button id="playSelectedButton" class="button button-primary" type="button" disabled>▶ Play selected</button>
             </div>
+            <section id="savedPlaylists" class="saved-playlists" aria-label="Saved playlists" hidden></section>
             <div id="playlistBar" class="playlist-bar" hidden>
               <p id="playlistStatus" class="playlist-status" role="status" aria-live="polite"></p>
+              <p id="playlistNoteText" class="playlist-note" hidden></p>
               <div class="playlist-buttons">
                 <button id="playlistPrevButton" class="player-button" type="button">◀ Previous</button>
                 <button id="playlistNextButton" class="player-button" type="button">Next ▶</button>

@@ -67,6 +67,9 @@ const state = {
   watchSelectedIds: new Set(),
   watchExpandedTypes: new Set(),
   playlist: null,
+  playlists: [],
+  playlistsAvailable: true,
+  linkedPlaylistId: "",
   activeTab: "tag",
   activeRecord: null,
   records: [],
@@ -99,8 +102,8 @@ function notify(message, kind = "", action = null) {
   showNotice("#notice", message, kind, action);
 }
 
-function notifyWatch(message, kind = "") {
-  showNotice("#watchNotice", message, kind);
+function notifyWatch(message, kind = "", action = null) {
+  showNotice("#watchNotice", message, kind, action);
 }
 
 function friendlyError(error) {
@@ -574,6 +577,7 @@ async function loadLibrary() {
     publishedAt: record.published_at,
     tags: record.tags,
   }));
+  await loadPlaylists();
   renderLibrary();
 }
 
@@ -624,6 +628,8 @@ function refreshWatchControls() {
   $("#playSelectedButton").disabled = !ready || !selected.length;
   $("#playSelectedButton").textContent = selected.length ? `▶ Play selected (${plural(selected.length, "clip")})` : "▶ Play selected";
   $("#selectAllTypesButton").textContent = total && selected.length === total ? "Clear selection" : "Select all";
+  $("#savePlaylistButton").hidden = state.role !== "admin";
+  $("#savePlaylistButton").disabled = !selected.length || !state.playlistsAvailable;
   document.querySelectorAll(".watch-event, .watch-group-play").forEach((button) => { button.disabled = !ready; });
 }
 
@@ -752,16 +758,231 @@ function renderWatchEvents(record) {
     return group;
   }));
   refreshWatchControls();
+  renderSavedPlaylists(record);
   renderPlaylistStatus();
+}
+
+function mapPlaylist(row) {
+  return {
+    id: row.id,
+    videoId: row.video_id,
+    title: row.title,
+    note: row.note || "",
+    tagIds: Array.isArray(row.tag_ids) ? row.tag_ids : [],
+    clipSeconds: row.clip_seconds,
+    createdAt: row.created_at,
+  };
+}
+
+// Playlists are optional: if database/003_playlists.sql has not been run yet, the rest of the app still works.
+async function loadPlaylists() {
+  const { data, error } = await supabase
+    .from("playlists")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) {
+    console.warn("Saved playlists are unavailable:", error);
+    state.playlists = [];
+    state.playlistsAvailable = false;
+    return;
+  }
+  state.playlistsAvailable = true;
+  state.playlists = data.map(mapPlaylist);
+}
+
+// A saved playlist's clips that still exist and have an event type, in match order.
+function playlistTags(playlist, record) {
+  const wanted = new Set(playlist.tagIds);
+  return watchEvents(record).filter((tag) => wanted.has(tag.id));
+}
+
+function playlistLink(playlist) {
+  return `${window.location.origin}${window.location.pathname}#playlist-${playlist.id}`;
+}
+
+async function copyPlaylistLink(playlist) {
+  const url = playlistLink(playlist);
+  try {
+    await navigator.clipboard.writeText(url);
+    notifyWatch(`Link to "${playlist.title}" copied. Anyone with a Touchline account can open it while the video is published.`, "success");
+  } catch {
+    window.prompt("Copy this link to share the playlist:", url);
+  }
+}
+
+async function deleteSavedPlaylist(playlist) {
+  if (!window.confirm(`Delete the playlist "${playlist.title}"? Links to it will stop working. The clips themselves are not affected.`)) return;
+  try {
+    const { data, error } = await supabase
+      .from("playlists")
+      .delete()
+      .eq("id", playlist.id)
+      .select("id")
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("The playlist was not found or you do not have permission to delete it.");
+    state.playlists = state.playlists.filter((item) => item.id !== playlist.id);
+    const record = currentWatchRecord();
+    if (record) renderWatchEvents(record);
+    notifyWatch(`Deleted the playlist "${playlist.title}".`, "success");
+  } catch (error) {
+    notifyWatch(`Could not delete "${playlist.title}": ${friendlyError(error)}`, "error");
+  }
+}
+
+function renderSavedPlaylists(record) {
+  const container = $("#savedPlaylists");
+  const isAdmin = state.role === "admin";
+  if (!state.playlistsAvailable) {
+    container.hidden = !isAdmin;
+    const message = document.createElement("p");
+    message.className = "empty-state";
+    message.textContent = "Saved playlists need a one-time database update: run database/003_playlists.sql in the Supabase SQL Editor.";
+    container.replaceChildren(message);
+    return;
+  }
+  const playlists = state.playlists.filter((playlist) => playlist.videoId === record.id);
+  container.hidden = playlists.length === 0;
+  if (!playlists.length) {
+    container.replaceChildren();
+    return;
+  }
+  container.replaceChildren(groupHeading("h3", "Playlists", playlists.length), ...playlists.map((playlist) => {
+    const tags = playlistTags(playlist, record);
+    const missing = playlist.tagIds.length - tags.length;
+    const item = document.createElement("article");
+    item.className = "saved-playlist";
+    item.classList.toggle("linked", playlist.id === state.linkedPlaylistId);
+    item.dataset.playlistId = playlist.id;
+
+    const title = document.createElement("strong");
+    title.className = "saved-playlist-title";
+    title.textContent = playlist.title;
+    const meta = document.createElement("span");
+    meta.className = "saved-playlist-meta";
+    meta.textContent = [
+      plural(tags.length, "clip"),
+      `${playlist.clipSeconds} seconds each`,
+      missing > 0 ? `${missing} no longer available` : "",
+    ].filter(Boolean).join(" · ");
+    item.append(title, meta);
+
+    if (playlist.note) {
+      const note = document.createElement("p");
+      note.className = "saved-playlist-note";
+      note.textContent = playlist.note;
+      item.append(note);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "saved-playlist-actions";
+    const play = document.createElement("button");
+    play.type = "button";
+    play.className = "watch-group-play";
+    play.textContent = "▶ Play";
+    play.disabled = !state.watchReady || !tags.length;
+    play.setAttribute("aria-label", `Play the playlist ${playlist.title}`);
+    play.addEventListener("click", () => startPlaylist(tags, playlist.title, { length: playlist.clipSeconds, note: playlist.note }));
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "link-button";
+    copy.textContent = "Copy link";
+    copy.addEventListener("click", () => copyPlaylistLink(playlist));
+    actions.append(play, copy);
+    if (isAdmin) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "delete-all";
+      remove.textContent = "Delete";
+      remove.setAttribute("aria-label", `Delete the playlist ${playlist.title}`);
+      remove.addEventListener("click", () => deleteSavedPlaylist(playlist));
+      actions.append(remove);
+    }
+    item.append(actions);
+    return item;
+  }));
+}
+
+function openPlaylistDialog() {
+  const record = currentWatchRecord();
+  const tags = selectedWatchTags();
+  if (!record || !tags.length) return;
+  $("#playlistForm").reset();
+  $("#playlistDialogNotice").textContent = "";
+  $("#playlistDialogSummary").textContent = `${plural(tags.length, "clip")} from ${record.title}, ${clipLengthSeconds()} seconds each.`;
+  $("#playlistDialog").showModal();
+  $("#playlistTitle").focus();
+}
+
+async function savePlaylist(event) {
+  event.preventDefault();
+  const record = currentWatchRecord();
+  const tags = selectedWatchTags();
+  const title = $("#playlistTitle").value.trim();
+  if (!record || !tags.length) return;
+  if (!title) {
+    $("#playlistDialogNotice").textContent = "Give the playlist a title.";
+    return;
+  }
+  const button = $("#savePlaylistSubmit");
+  button.disabled = true;
+  try {
+    const { data, error } = await supabase
+      .from("playlists")
+      .insert({
+        video_id: record.id,
+        title,
+        note: $("#playlistNote").value.trim(),
+        tag_ids: tags.map((tag) => tag.id),
+        clip_seconds: clipLengthSeconds(),
+      })
+      .select("*")
+      .single();
+    if (error) throw error;
+    const playlist = mapPlaylist(data);
+    state.playlists = [playlist, ...state.playlists];
+    $("#playlistDialog").close();
+    renderWatchEvents(record);
+    showNotice("#watchNotice", `Saved the playlist "${playlist.title}".`, "success", {
+      label: "Copy link",
+      onClick: () => copyPlaylistLink(playlist),
+    });
+  } catch (error) {
+    $("#playlistDialogNotice").textContent = `Could not save the playlist. ${friendlyError(error)}`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// Opens the playlist named in the address (#playlist-<id>), e.g. from a shared link.
+async function openLinkedPlaylist() {
+  const match = window.location.hash.match(/^#playlist-([0-9a-f-]{36})$/i);
+  if (!match || !state.role) return;
+  const id = match[1].toLowerCase();
+  const playlist = state.playlists.find((item) => item.id === id);
+  const record = playlist && state.records.find((item) => item.id === playlist.videoId && item.status === "published");
+  setTab("watch");
+  if (!playlist || !record) {
+    notifyWatch("This playlist link doesn't work any more: the playlist was deleted, or its video isn't published.", "error");
+    return;
+  }
+  state.linkedPlaylistId = id;
+  $("#watchVideoSelect").value = record.id;
+  await selectWatchVideo(record.id);
+  if (state.selectedWatchId !== record.id) return;
+  renderWatchEvents(record);
+  document.querySelector(`[data-playlist-id="${id}"]`)?.scrollIntoView({ block: "nearest" });
+  notifyWatch(`Playlist from your coach: "${playlist.title}". Press ▶ Play on it to watch.`, "success");
 }
 
 // A playlist plays several clips back to back. Each clip starts a little before its moment and runs
 // for the chosen clip length; overlapping clips run on without jumping back.
-function startPlaylist(tags, description) {
+function startPlaylist(tags, description, options = {}) {
   if (!state.watchPlayer || !state.watchReady || !tags.length) return;
-  const length = clipLengthSeconds();
+  const length = options.length ?? clipLengthSeconds();
   state.playlist = {
     description,
+    note: options.note || "",
     clips: tags.map((tag) => {
       const start = Math.max(0, tag.timestampSeconds - watchLeadSeconds);
       return { tag, start, end: start + length };
@@ -833,6 +1054,8 @@ function renderPlaylistStatus() {
     button.classList.toggle("playing", !!currentId && button.dataset.tagId === currentId);
   });
   if (!playlist) return;
+  $("#playlistNoteText").textContent = playlist.note;
+  $("#playlistNoteText").hidden = !playlist.note;
   const { tag } = playlist.clips[playlist.index];
   const who = tag.playerNames ? ` · ${tag.playerNames}` : "";
   $("#playlistStatus").textContent = `${playlist.description}: clip ${playlist.index + 1} of ${playlist.clips.length} · ${tagEventLabel(tag)} at ${formatTime(tag.timestampSeconds)}${who}`;
@@ -860,6 +1083,10 @@ async function selectWatchVideo(recordId) {
   state.selectedWatchId = record?.id || "";
   state.watchSelectedIds.clear();
   state.watchExpandedTypes.clear();
+  if (state.linkedPlaylistId) {
+    const linked = state.playlists.find((item) => item.id === state.linkedPlaylistId);
+    if (linked?.videoId !== state.selectedWatchId) state.linkedPlaylistId = "";
+  }
   state.watchReady = false;
   stopPlaylist();
   const loadId = ++state.watchLoadId;
@@ -1712,6 +1939,8 @@ function showSignedOut() {
   state.selectedWatchId = "";
   state.watchReady = false;
   state.playlist = null;
+  state.playlists = [];
+  state.linkedPlaylistId = "";
   state.isSaving = false;
   exitStage();
   $("#tagPanel").classList.remove("has-video");
@@ -1775,6 +2004,7 @@ async function activateSession(session) {
   }
   setTab(state.role === "admin" ? "tag" : "watch");
   if (state.role === "admin") notify("Signed in. Your cloud video library is ready.");
+  await openLinkedPlaylist();
 }
 
 function openPasswordDialog() {
@@ -1917,6 +2147,12 @@ $("#playSelectedButton").addEventListener("click", () => {
   const tags = selectedWatchTags();
   const types = new Set(tags.map(tagEventLabel));
   startPlaylist(tags, types.size === 1 ? [...types][0] : "Selected clips");
+});
+$("#savePlaylistButton").addEventListener("click", openPlaylistDialog);
+$("#playlistForm").addEventListener("submit", savePlaylist);
+$("#cancelPlaylistButton").addEventListener("click", () => $("#playlistDialog").close());
+window.addEventListener("hashchange", () => {
+  openLinkedPlaylist().catch((error) => console.error("Could not open the linked playlist:", error));
 });
 $("#selectAllTypesButton").addEventListener("click", () => {
   const record = currentWatchRecord();

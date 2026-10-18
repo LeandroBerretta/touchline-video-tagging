@@ -226,6 +226,18 @@ kbd { border: 1px solid #59704e; border-radius: 4px; padding: 2px 6px; color: #2
 .playlist-bar { display: grid; gap: 8px; border-top: 1px solid var(--line); padding: 12px 14px; background: #a8f27712; }
 .playlist-status { margin: 0; color: var(--green); font-size: 14px; font-weight: 600; line-height: 1.45; }
 .playlist-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.playlist-note { margin: 0; border-left: 3px solid var(--green); padding: 2px 0 2px 10px; color: var(--text); font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.saved-playlists { display: grid; gap: 8px; border-top: 1px solid var(--line); padding: 12px 14px; }
+.saved-playlists .empty-state { margin: 0; font-size: 13px; }
+.saved-playlist { display: grid; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: #121914a0; }
+.saved-playlist.linked { border-color: var(--green); box-shadow: inset 3px 0 0 var(--green); background: #a8f27712; }
+.saved-playlist-title { font-size: 14px; overflow-wrap: anywhere; }
+.saved-playlist-meta { color: var(--muted); font-size: 12px; }
+.saved-playlist-note { margin: 0; color: #dce6dd; font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.saved-playlist-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.saved-playlist-actions .link-button { margin: 0; font-size: 13px; }
+textarea { min-width: 0; border: 1px solid var(--line); border-radius: 7px; outline: none; padding: 11px 13px; color: var(--text); background: #121914; font: inherit; font-size: 14px; resize: vertical; }
+textarea:focus { border-color: #7caf5c; box-shadow: 0 0 0 3px #a8f27733; }
 .playlist-buttons .player-button { min-height: 36px; padding: 0 12px; font-size: 13px; }
 .watch-groups { display: grid; align-content: start; gap: 8px; max-height: min(68vh, 680px); overflow: auto; border-top: 1px solid var(--line); padding: 12px 14px; }
 .watch-group { border: 1px solid var(--line); border-radius: 8px; background: #121914a0; }
