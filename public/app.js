@@ -86,6 +86,11 @@ const state = {
   numberBuffer: "",
   shiftNumber: false,
   bulkIds: new Set(),
+  changeCount: 0,
+  dirtySince: null,
+  autosaveTimer: null,
+  autosaving: false,
+  autosaveFailed: false,
   teams: [],
   members: [],
   memberById: new Map(),
@@ -374,8 +379,125 @@ function plural(count, word) {
 
 function setDirty() {
   state.isDirty = true;
+  state.changeCount++;
+  state.dirtySince ??= Date.now();
   $("#saveHint").textContent = "Unsaved changes";
   refreshActions();
+  scheduleAutosave();
+}
+
+// ---- Autosave ----
+// In progress videos save themselves a few seconds after the last change (and at least every 30 seconds
+// while changes keep coming), so a crash or a closed laptop never loses a match of tagging. Published
+// videos are never autosaved: viewers only see changes when the admin re-publishes.
+const autosaveDelayMs = 4000;
+const autosaveMaxWaitMs = 30000;
+const autosaveRetryMs = 30000;
+
+function autosaveEligible() {
+  return !!supabase && state.role === "admin" && !!state.activeRecord
+    && state.activeRecord.status !== "published" && state.playerReady;
+}
+
+function scheduleAutosave() {
+  if (!autosaveEligible()) return;
+  clearTimeout(state.autosaveTimer);
+  const waited = Date.now() - (state.dirtySince ?? Date.now());
+  state.autosaveTimer = setTimeout(autosave, Math.max(0, Math.min(autosaveDelayMs, autosaveMaxWaitMs - waited)));
+}
+
+// Before leaving the open video (another video, New video, sign out), save its pending changes now
+// instead of asking to discard them. Published videos still ask.
+async function flushAutosave() {
+  if (!state.isDirty || !autosaveEligible() || state.isSaving) return;
+  clearTimeout(state.autosaveTimer);
+  await autosave();
+}
+
+function cancelAutosave() {
+  clearTimeout(state.autosaveTimer);
+  state.autosaveTimer = null;
+  state.dirtySince = null;
+}
+
+function mapVideoRow(row) {
+  return {
+    id: row.id,
+    title: row.name,
+    vimeoUrl: row.vimeo_url,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    publishedAt: row.published_at,
+    teamId: row.team_id ?? null,
+    tags: row.tags,
+  };
+}
+
+// Saves quietly: it never redraws the moments, so typing and marking carry on undisturbed. Changes made
+// while it saves stay unsaved and are picked up by the next autosave.
+async function autosave() {
+  state.autosaveTimer = null;
+  if (!state.isDirty || !autosaveEligible()) return;
+  if (state.isSaving || state.autosaving) {
+    scheduleAutosave();
+    return;
+  }
+  let payload;
+  try {
+    payload = videoPayload();
+  } catch (error) {
+    $("#saveHint").textContent = `Not saved yet: ${error.message}`;
+    return;
+  }
+  const record = state.activeRecord;
+  const change = state.changeCount;
+  state.autosaving = true;
+  $("#saveHint").textContent = "Saving…";
+  try {
+    const { data, error } = await supabase
+      .from("videos")
+      .upsert({
+        id: payload.id,
+        name: payload.title,
+        vimeo_url: payload.vimeoUrl,
+        status: "in_progress",
+        tags: payload.tags,
+        updated_at: new Date().toISOString(),
+        published_at: null,
+        ...(state.teamsAvailable ? { team_id: activeTeamId() } : {}),
+      }, { onConflict: "id" })
+      .select("*")
+      .single();
+    if (error) throw error;
+    if (state.activeRecord !== record) return;
+    const saved = mapVideoRow(data);
+    state.activeRecord = saved;
+    state.records = [saved, ...state.records.filter((item) => item.id !== saved.id)];
+    renderLibrary();
+    if (state.changeCount === change) {
+      state.isDirty = false;
+      state.dirtySince = null;
+      $("#saveHint").textContent = `Saved automatically at ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    } else {
+      $("#saveHint").textContent = "Unsaved changes";
+      scheduleAutosave();
+    }
+    state.autosaveFailed = false;
+    refreshActions();
+  } catch (error) {
+    console.error("Autosave failed:", error);
+    if (state.activeRecord !== record) return;
+    $("#saveHint").textContent = "Autosave failed: retrying";
+    if (!state.autosaveFailed) {
+      notify(`Couldn't save automatically: ${friendlyError(error)} Touchline will keep trying, or press Save progress.`, "error");
+    }
+    state.autosaveFailed = true;
+    clearTimeout(state.autosaveTimer);
+    state.autosaveTimer = setTimeout(autosave, autosaveRetryMs);
+  } finally {
+    state.autosaving = false;
+  }
 }
 
 function actionHint(incomplete, isPublished) {
@@ -386,7 +508,8 @@ function actionHint(incomplete, isPublished) {
       ? "1 moment without an event type is saved but hidden from viewers until it has one."
       : `${incomplete} moments without an event type are saved but hidden from viewers until they have one.`);
   }
-  if (isPublished) parts.push(state.isDirty ? "Viewers see your changes after you re-publish." : "No changes since this video was published.");
+  if (isPublished) parts.push(state.isDirty ? "Viewers see your changes after you re-publish. Published videos don't save automatically." : "No changes since this video was published.");
+  else parts.push("Changes save automatically while the video is in progress.");
   return parts.join(" ");
 }
 
@@ -536,6 +659,7 @@ function renderLibrary() {
         ].filter(Boolean).join(" · ");
       button.append(title, details);
       button.addEventListener("click", async () => {
+        await flushAutosave();
         if (!confirmDiscard()) return;
         $("#videoName").value = record.title;
         $("#videoUrl").value = record.vimeoUrl;
@@ -2786,6 +2910,7 @@ async function openVideo(value, record = null) {
     tags: [],
   };
   state.isDirty = false;
+  cancelAutosave();
   state.lastMarkedId = null;
   state.numberBuffer = "";
   state.bulkIds = new Set();
@@ -2913,6 +3038,7 @@ async function saveVideo(mode = "progress") {
     };
     state.activeRecord = saved;
     state.isDirty = false;
+    cancelAutosave();
     state.tags = saved.tags.map((tag) => withPlayers(normalizeTag(tag), saved.teamId)).sort(byTime);
     $("#videoName").value = saved.title;
     $("#videoUrl").value = saved.vimeoUrl;
@@ -2942,6 +3068,7 @@ async function saveVideo(mode = "progress") {
 
 async function startNewVideo() {
   if (state.role !== "admin") return;
+  await flushAutosave();
   if (!confirmDiscard()) return;
   if (state.player) {
     try {
@@ -2955,6 +3082,7 @@ async function startNewVideo() {
   state.activeRecord = null;
   state.tags = [];
   state.isDirty = false;
+  cancelAutosave();
   state.lastMarkedId = null;
   state.numberBuffer = "";
   state.bulkIds = new Set();
@@ -2986,6 +3114,7 @@ function showSignedOut() {
   state.activeRecord = null;
   state.tags = [];
   state.isDirty = false;
+  cancelAutosave();
   state.selectedWatchId = "";
   state.watchReady = false;
   state.playlist = null;
@@ -3158,6 +3287,7 @@ function forgetStoredSession() {
 }
 
 $("#signOutButton").addEventListener("click", async () => {
+  await flushAutosave();
   if (!confirmDiscard()) return;
   const button = $("#signOutButton");
   button.disabled = true;
@@ -3431,6 +3561,24 @@ window.addEventListener("keydown", (event) => {
   if (event.repeat && (event.key === "Enter" || event.key === " ")) return;
   event.preventDefault();
   action();
+});
+
+// The Vimeo player is in its own frame: once someone clicks inside it, it has the keyboard and the
+// page hears no keys. The window loses focus when that happens, so say so instead of failing silently.
+// (Switching to another app or tab also blurs the window; only a focused video frame shows the banner.)
+window.addEventListener("blur", () => {
+  window.setTimeout(() => {
+    const active = document.activeElement;
+    const videoHasKeys = active?.tagName === "IFRAME" && $("#videoFrame").contains(active);
+    $("#keysPaused").hidden = !(videoHasKeys && state.role === "admin" && state.activeTab === "tag");
+  }, 0);
+});
+window.addEventListener("focus", () => {
+  $("#keysPaused").hidden = true;
+});
+$("#keysPausedButton").addEventListener("click", () => {
+  $("#keysPausedButton").blur();
+  $("#keysPaused").hidden = true;
 });
 
 // Letting go of Shift after Shift + shirt number adds that player.

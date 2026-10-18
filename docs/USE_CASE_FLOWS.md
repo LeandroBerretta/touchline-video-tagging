@@ -96,6 +96,8 @@ Notes:
 - Review pass: with the video paused, Done moves to the next To do moment and
   seeks there. To do moments can be ticked and edited together (type, player,
   Done, delete).
+- When the Vimeo frame takes the keyboard (after a click inside the video), a
+  Keys paused bar appears under the video until the page has focus again.
 - Keyboard: Enter marks, Space plays or pauses, ← and → jump 5 seconds. Keys
   only work while the page has focus, so playback has its own controls under
   the video; clicking inside the Vimeo picture hands the keyboard to Vimeo.
@@ -191,6 +193,13 @@ stateDiagram-v2
   InProgress --> [*]: Remove
   Published --> [*]: Remove
 ```
+
+In progress videos autosave a few seconds after each change (at least every
+30 seconds while changes keep coming), quietly and without redrawing the list;
+opening another video, New video and sign out save pending changes first.
+Published videos never autosave. If an autosave fails, the status says so, one
+notice appears, and it retries every 30 seconds. Each save replaces the whole
+video, so two admins on one video means the last save wins.
 
 A published video can be unpublished from the editor (next to Re-publish
 changes) or straight from its Published library entry without opening it.
