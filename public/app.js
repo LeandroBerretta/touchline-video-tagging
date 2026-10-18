@@ -94,6 +94,8 @@ const state = {
   libraryTeam: "",
   watchDuration: 0,
   watchChoosing: false,
+  clipFilterType: "",
+  clipFilterPlayer: "",
   expandedTagId: "",
   changeCount: 0,
   dirtySince: null,
@@ -1337,7 +1339,8 @@ function refreshWatchControls() {
   const ready = state.watchReady;
   const selected = selectedWatchTags();
   const record = currentWatchRecord();
-  const total = record ? watchEvents(record).length : 0;
+  const shown = record ? watchEvents(record).filter((tag) => matchesClipFilter(tag, record.teamId)) : [];
+  const allShownTicked = shown.length > 0 && shown.every((tag) => state.watchSelectedIds.has(tag.id));
   const moments = record ? taggedMoments(record) : [];
   const minutes = Math.max(1, Math.round(playlistSeconds(moments, clipLengthSeconds()) / 60));
   $("#watchMomentsButton").disabled = !ready || !moments.length;
@@ -1347,32 +1350,79 @@ function refreshWatchControls() {
     : "This video has no tagged moments yet";
   $("#playSelectedButton").disabled = !ready || !selected.length;
   $("#playSelectedButton").textContent = selected.length ? `▶ Play selected (${plural(selected.length, "clip")})` : "▶ Play selected";
-  $("#selectAllTypesButton").textContent = total && selected.length === total ? "Clear selection" : "Select all";
+  $("#selectAllTypesButton").textContent = clipFilterActive()
+    ? (allShownTicked ? "Untick shown" : "Select all shown")
+    : (allShownTicked ? "Clear selection" : "Select all");
   $("#savePlaylistButton").hidden = state.role !== "admin";
   $("#savePlaylistButton").disabled = !selected.length || !state.playlistsAvailable;
   document.querySelectorAll(".watch-event, .watch-group-play, .stat-play").forEach((button) => { button.disabled = !ready; });
 }
 
+// The people a moment names, as filter keys: squad players by id, other names by spelling.
+function clipPeople(tag, teamId) {
+  const { ids, others } = tagPlayers(tag, teamId);
+  return [
+    ...ids.filter((id) => state.memberById.has(id)).map((id) => ({ key: `id:${id}`, label: memberLabel(state.memberById.get(id)) })),
+    ...others.map((name) => ({ key: `name:${normalizeName(name)}`, label: name })),
+  ];
+}
+
+function clipFilterActive() {
+  return state.watchChoosing && (!!state.clipFilterType || !!state.clipFilterPlayer);
+}
+
+function matchesClipFilter(tag, teamId) {
+  if (!clipFilterActive()) return true;
+  if (state.clipFilterType && tagEventLabel(tag) !== state.clipFilterType) return false;
+  if (state.clipFilterPlayer && !clipPeople(tag, teamId).some((person) => person.key === state.clipFilterPlayer)) return false;
+  return true;
+}
+
+// Choose clips filters: event types and people found in this video's events.
+function renderClipFilters(record) {
+  const all = watchEvents(record);
+  const types = [...new Set(all.map(tagEventLabel))];
+  const people = new Map();
+  for (const tag of all) for (const person of clipPeople(tag, record.teamId)) people.set(person.key, person.label);
+  if (!types.includes(state.clipFilterType)) state.clipFilterType = "";
+  if (!people.has(state.clipFilterPlayer)) state.clipFilterPlayer = "";
+  const typeSelect = $("#clipFilterType");
+  typeSelect.replaceChildren(new Option("All event types", ""), ...all
+    .filter((tag, index) => all.findIndex((other) => tagEventLabel(other) === tagEventLabel(tag)) === index)
+    .sort((first, second) => groupOrder(first) - groupOrder(second) || tagEventLabel(first).localeCompare(tagEventLabel(second)))
+    .map((tag) => new Option(tagEventLabel(tag), tagEventLabel(tag))));
+  typeSelect.value = state.clipFilterType;
+  const playerSelect = $("#clipFilterPlayer");
+  playerSelect.replaceChildren(new Option("All players", ""), ...[...people.entries()]
+    .sort(([firstKey, first], [secondKey, second]) => (firstKey.startsWith("id:") === secondKey.startsWith("id:") ? first.localeCompare(second, undefined, { numeric: true }) : firstKey.startsWith("id:") ? -1 : 1))
+    .map(([key, label]) => new Option(label, key)));
+  playerSelect.value = state.clipFilterPlayer;
+}
+
 function renderWatchEvents(record) {
-  const tags = watchEvents(record);
+  renderClipFilters(record);
+  const tags = watchEvents(record).filter((tag) => matchesClipFilter(tag, record.teamId));
   const groups = new Map();
   for (const tag of tags) {
     const label = tagEventLabel(tag);
     if (!groups.has(label)) groups.set(label, []);
     groups.get(label).push(tag);
   }
-  const presentIds = new Set(tags.map((tag) => tag.id));
+  const presentIds = new Set(watchEvents(record).map((tag) => tag.id));
   for (const id of [...state.watchSelectedIds]) {
     if (!presentIds.has(id)) state.watchSelectedIds.delete(id);
   }
   const ordered = [...groups.entries()].sort(([firstLabel, [first]], [secondLabel, [second]]) =>
     groupOrder(first) - groupOrder(second) || firstLabel.localeCompare(secondLabel));
 
-  $("#watchEventCount").textContent = tags.length;
+  const total = watchEvents(record).length;
+  const filtering = clipFilterActive();
+  $("#watchEventCount").textContent = filtering ? `${tags.length} of ${total}` : total;
   $("#watchNoEvents").hidden = tags.length > 0;
-  $("#watchPlaylistControls").hidden = tags.length === 0;
+  $("#watchNoEvents").textContent = filtering ? "No events match these filters." : "This video has no tagged events yet.";
+  $("#watchPlaylistControls").hidden = total === 0;
   $("#watchGroups").replaceChildren(...ordered.map(([label, groupTags]) => {
-    const expanded = state.watchExpandedTypes.has(label);
+    const expanded = filtering || state.watchExpandedTypes.has(label);
     const group = document.createElement("section");
     group.className = "watch-group";
 
@@ -1960,6 +2010,8 @@ function playWatchMoment(timestampSeconds) {
 async function selectWatchVideo(recordId) {
   const record = state.records.find((item) => item.id === recordId && item.status === "published");
   state.selectedWatchId = record?.id || "";
+  state.clipFilterType = "";
+  state.clipFilterPlayer = "";
   renderWatchVideoList();
   state.watchSelectedIds.clear();
   state.watchExpandedTypes.clear();
@@ -3682,6 +3734,8 @@ function setWatchChoosing(on) {
   $("#watchEventsCard").classList.toggle("choosing", on);
   $("#chooseClipsButton").setAttribute("aria-pressed", String(on));
   $("#chooseClipsButton").textContent = on ? "Done choosing" : "Choose clips";
+  const record = currentWatchRecord();
+  if (record) renderWatchEvents(record);
   try {
     window.localStorage.setItem(watchChoosingStorageKey, String(on));
   } catch {
@@ -3730,10 +3784,21 @@ window.addEventListener("hashchange", () => {
 $("#selectAllTypesButton").addEventListener("click", () => {
   const record = currentWatchRecord();
   if (!record) return;
-  const ids = watchEvents(record).map((tag) => tag.id);
-  if (ids.every((id) => state.watchSelectedIds.has(id))) state.watchSelectedIds.clear();
-  else state.watchSelectedIds = new Set(ids);
+  // With a filter on, this ticks (or unticks) only the events shown; other ticks are kept.
+  const ids = watchEvents(record).filter((tag) => matchesClipFilter(tag, record.teamId)).map((tag) => tag.id);
+  if (ids.every((id) => state.watchSelectedIds.has(id))) for (const id of ids) state.watchSelectedIds.delete(id);
+  else for (const id of ids) state.watchSelectedIds.add(id);
   renderWatchEvents(record);
+});
+$("#clipFilterType").addEventListener("change", () => {
+  state.clipFilterType = $("#clipFilterType").value;
+  const record = currentWatchRecord();
+  if (record) renderWatchEvents(record);
+});
+$("#clipFilterPlayer").addEventListener("change", () => {
+  state.clipFilterPlayer = $("#clipFilterPlayer").value;
+  const record = currentWatchRecord();
+  if (record) renderWatchEvents(record);
 });
 $("#playlistPrevButton").addEventListener("click", () => {
   if (state.playlist) playClip(state.playlist.index - 1);

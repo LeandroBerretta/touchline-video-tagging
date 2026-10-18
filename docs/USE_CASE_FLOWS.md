@@ -285,7 +285,9 @@ Notes:
   white, Half-time line). A tick plays that moment (3 s lead); the bar seeks;
   the playing clip's tick is highlighted.
 - Tick boxes, Select all, Play selected and Save as playlist only show after
-  Choose clips (remembered per device). Clip length sits above the views and
+  Choose clips (remembered per device). While choosing, filters by event type
+  and by player narrow the list; Select all shown ticks only the matches and
+  earlier ticks are kept. Clip length sits above the views and
   applies to Events and Stats. The playlist bar stays in view (pinned to the
   bottom of the screen on phones and tablets) while clips play.
 - Every event has its own tick box; a group's tick box selects all its events

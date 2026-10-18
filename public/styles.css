@@ -487,3 +487,7 @@ textarea:focus { border-color: #7caf5c; box-shadow: 0 0 0 3px #a8f27733; }
 .timeline-tick:disabled { cursor: not-allowed; opacity: .6; }
 .timeline-key .timeline-key-playing::before { background: #7cc4ff; }
 #watchWorkspace.stage-mode .watch-player-card .timeline { flex: 0 0 auto; }
+
+/* Choose clips filters */
+.clip-filters { display: flex; flex: 1 1 100%; flex-wrap: wrap; gap: 8px; }
+.clip-filters select { flex: 1 1 160px; min-width: 0; padding: 8px 10px; font-size: 13px; }

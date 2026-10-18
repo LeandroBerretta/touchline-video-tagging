@@ -399,6 +399,14 @@
             <div id="watchEventsView" class="watch-view">
               <p class="watch-events-hint">Play a whole event type with ▶ Play, or open a type and click an event to play just that one. Choose clips lets you tick any mix and play or save them. Each clip starts 3 seconds before its moment.</p>
               <div id="watchPlaylistControls" class="watch-playlist-controls" hidden>
+                <div class="clip-filters" role="group" aria-label="Filter the events">
+                  <select id="clipFilterType" aria-label="Show one event type">
+                    <option value="">All event types</option>
+                  </select>
+                  <select id="clipFilterPlayer" aria-label="Show one player's events">
+                    <option value="">All players</option>
+                  </select>
+                </div>
                 <button id="selectAllTypesButton" class="link-button" type="button">Select all</button>
                 <button id="savePlaylistButton" class="button button-outline" type="button" hidden disabled>Save as playlist</button>
                 <button id="playSelectedButton" class="button button-primary" type="button" disabled>▶ Play selected</button>

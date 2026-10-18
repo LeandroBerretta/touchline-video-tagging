@@ -142,3 +142,35 @@ test("stats split by half at Half-time, count players by identity, and play on c
   assert.equal(page.state.playlist.clips.length, 2);
   page.close();
 });
+
+test("Choose clips filters by player: only their events show, and Select all shown ticks just those", async () => {
+  const page = await watchOkanagan("admin");
+  assert.equal(page.$("#clipFilterPlayer").closest("#watchPlaylistControls") !== null, true, "filters live inside Choose clips");
+  await page.click("#chooseClipsButton");
+  const playerOptions = page.$$("#clipFilterPlayer option").map((option) => option.textContent);
+  assert.deepEqual(playerOptions, ["All players", "#9 Nine Example", "#17 Seventeen Example"]);
+  const seventeen = page.$$("#clipFilterPlayer option").find((option) => option.textContent === "#17 Seventeen Example").value;
+  await page.choose("#clipFilterPlayer", seventeen);
+  const shownIds = page.$$(".watch-event").map((button) => button.dataset.tagId);
+  assert.deepEqual(shownIds.sort(), ["p-goal2", "p-shot"]);
+  assert.equal(page.text("#watchEventCount"), "2 of 6");
+  assert.ok(page.$$(".watch-event-list").every((list) => !list.hidden), "matching groups open");
+  assert.equal(page.text("#selectAllTypesButton"), "Select all shown");
+  await page.click("#selectAllTypesButton");
+  await page.click("#playSelectedButton");
+  assert.deepEqual(page.state.playlist.clips.map((clip) => clip.tag.id), ["p-shot", "p-goal2"]);
+  page.close();
+});
+
+test("Choose clips filters by type, keeps earlier ticks, and the filters only apply while choosing", async () => {
+  const page = await watchOkanagan("admin");
+  await page.click("#chooseClipsButton");
+  await page.choose("#clipFilterType", "Corner");
+  await page.click("#selectAllTypesButton");
+  await page.choose("#clipFilterType", "Goal");
+  await page.click("#selectAllTypesButton");
+  assert.deepEqual([...page.state.watchSelectedIds].sort(), ["p-corner", "p-goal1", "p-goal2"], "ticks from both filters are kept");
+  await page.click("#chooseClipsButton"); // Done choosing
+  assert.equal(page.text("#watchEventCount"), "6", "the normal view shows everything");
+  page.close();
+});

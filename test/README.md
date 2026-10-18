@@ -52,7 +52,7 @@ was scheduled (`state.autosaveTimer`) and then runs it with
 | `saving.test.js` | UC4: save, publish, re-publish, unpublish (editor and library), changed links, autosave and its failures |
 | `library.test.js` | UC5/UC6: sections, queue, reopening, broken moments, remove, search, team filter |
 | `teams.test.js` | Teams and squads: members, numbers, remove/restore, edits, delete rules, viewer limits |
-| `watch.test.js` | UC7: video cards, groups, back-to-back clips, Choose clips, Tagged moments only, clip length, timeline, stats |
+| `watch.test.js` | UC7: video cards, groups, back-to-back clips, Choose clips and its type/player filters, Tagged moments only, clip length, timeline, stats |
 | `playlists.test.js` | Saved playlists: save, play, copy link, open from a link, delete, missing table |
 | `static.test.js` | Page/code consistency, database access rules, no secrets or squad data committed, workflow and docs |
 
