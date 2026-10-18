@@ -289,6 +289,36 @@ flowchart TD
   I --> J[Press Play: clips back to back, coach's note shown]
 ```
 
+## Teams and squads (admin)
+
+Needs `database/004_teams.sql`. Each video belongs to one team (chosen in the
+video form; automatic when there is only one team). The Teams tab lists teams;
+for the selected team admins rename it, add, edit and remove players (shirt
+number and name) and staff (name and role). Removing keeps the person
+(inactive) so old moments and stats still show them; they can be restored.
+A team can be deleted, together with its squad, once no videos belong to it;
+until then the app explains how many videos to move or remove first.
+Viewers can read team names and players, never staff.
+
+When tagging, players are picked from the video's squad as chips; "Other
+name…" adds free-text names such as opponents. Typed names that match the
+squad become squad players. Moments saved before squads existed are linked to
+squad players by name when opened. Stats count squad players by identity and
+show their shirt numbers.
+
+```mermaid
+flowchart TD
+  A[Teams tab] --> B{Team exists?}
+  B -- No --> C[Add team]
+  B -- Yes --> D[Select team]
+  C --> D
+  D --> E[Add / edit / remove players and staff]
+  E --> F[Tag view: video form Team]
+  F --> G[Moment: Add player… picks from squad]
+  G --> H[Saved as player ids + names]
+  H --> I[Watch Stats by player, with shirt numbers]
+```
+
 ## UC8 Sign out
 
 ```mermaid

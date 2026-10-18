@@ -11,6 +11,11 @@ Run them in order from the Supabase SQL Editor:
 3. `003_playlists.sql` adds saved playlists. Admins can create and delete
    them; viewers can read a playlist only while its video is published. Safe to
    rerun. Until it has been run, the app works but cannot save playlists.
+4. `004_teams.sql` adds teams, squad members (players and staff) and a team
+   on each video. Admins manage them in the Teams tab; viewers can read team
+   names and players, never staff. Admins can delete a team (and its squad)
+   once no videos use it. Structure only: keep real squad lists out of the
+   repository. Safe to rerun.
 
 The viewer role can read published videos only. The admin role can read and
 manage all videos. Database row-level security enforces these permissions.

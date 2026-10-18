@@ -60,6 +60,7 @@ const errorMessages = [
   [/row-level security|permission denied/i, "Your account does not have permission to do that."],
   [/rate limit|too many requests/i, "Too many attempts. Wait a minute and try again."],
   [/password should be at least/i, "That password is too short. Use at least 8 characters."],
+  [/duplicate key value.*teams_name/i, "A team with that name already exists."],
 ];
 
 const state = {
@@ -76,6 +77,12 @@ const state = {
   playlistsAvailable: true,
   linkedPlaylistId: "",
   watchView: "events",
+  teams: [],
+  members: [],
+  memberById: new Map(),
+  teamsAvailable: true,
+  selectedTeamId: "",
+  editingMemberId: "",
   activeTab: "tag",
   activeRecord: null,
   records: [],
@@ -222,6 +229,8 @@ function setTab(tab) {
   }
   $("#tagPanel").hidden = tab !== "tag";
   $("#watchPanel").hidden = tab !== "watch";
+  $("#teamsPanel").hidden = tab !== "teams";
+  if (tab === "teams") renderTeams();
 }
 
 function formatTime(seconds) {
@@ -283,16 +292,71 @@ function normalizeTag(tag) {
 }
 
 function serializeTag(tag) {
+  const ids = Array.isArray(tag.playerIds) ? tag.playerIds : null;
   return {
     id: tag.id,
     timestampSeconds: tag.timestampSeconds,
     eventType: tag.eventType || "",
     customEventType: tag.eventType === "other" ? (tag.customEventType || "").trim() : "",
-    playerNames: (tag.playerNames || "").trim(),
+    playerIds: ids ?? [],
+    otherPlayers: splitNames(tag.otherPlayers).join(", "),
+    // Kept as plain text so viewers and older code can always show who was involved.
+    playerNames: ids ? playersText(ids, splitNames(tag.otherPlayers)) : (tag.playerNames || "").trim(),
     note: (tag.note || "").trim(),
     completed: isComplete(tag),
     done: isDone(tag),
   };
+}
+
+// ---- Teams and players ----
+// A moment names squad players by id (playerIds) plus any other names as text (otherPlayers),
+// e.g. opponents. playerNames holds the combined text for display.
+
+function splitNames(text) {
+  return (text || "").split(",").map((name) => name.trim().replace(/\s+/g, " ")).filter(Boolean);
+}
+
+function normalizeName(name) {
+  return name.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function memberLabel(member) {
+  return member.number === null || member.number === undefined ? member.name : `#${member.number} ${member.name}`;
+}
+
+function teamPlayers(teamId, { includeRemoved = false } = {}) {
+  return state.members
+    .filter((member) => member.teamId === teamId && member.kind === "player" && (includeRemoved || member.active))
+    .sort((first, second) => (first.number ?? 1e9) - (second.number ?? 1e9) || first.name.localeCompare(second.name));
+}
+
+function playersText(ids, others) {
+  const names = ids.map((id) => state.memberById.get(id)?.name).filter(Boolean);
+  return [...names, ...others].join(", ");
+}
+
+// Who a moment names. Moments saved before squads existed only have playerNames text: names that
+// match the team's squad (ignoring case and spaces) count as those players, the rest as other names.
+function tagPlayers(tag, teamId) {
+  if (Array.isArray(tag.playerIds)) return { ids: tag.playerIds, others: splitNames(tag.otherPlayers) };
+  const squad = teamId ? teamPlayers(teamId, { includeRemoved: true }) : [];
+  const ids = [];
+  const others = [];
+  for (const name of splitNames(tag.playerNames)) {
+    const match = squad.find((member) => normalizeName(member.name) === normalizeName(name));
+    if (!match) others.push(name);
+    else if (!ids.includes(match.id)) ids.push(match.id);
+  }
+  return { ids, others };
+}
+
+function withPlayers(tag, teamId) {
+  const { ids, others } = tagPlayers(tag, teamId);
+  return { ...tag, playerIds: ids, otherPlayers: others.join(", ") };
+}
+
+function activeTeamId() {
+  return state.teamsAvailable ? ($("#videoTeam").value || null) : null;
 }
 
 function plural(count, word) {
@@ -364,6 +428,8 @@ function startOfGameTag() {
     timestampSeconds: defaultStartOfGameSeconds,
     eventType: "start_of_game",
     customEventType: "",
+    playerIds: [],
+    otherPlayers: "",
     playerNames: "",
     note: "",
     done: true,
@@ -386,6 +452,11 @@ async function addToQueue() {
     $("#videoUrl").focus();
     return;
   }
+  if (state.teamsAvailable && state.teams.length && !activeTeamId()) {
+    notify("Choose the team for this video.", "error");
+    $("#videoTeam").focus();
+    return;
+  }
   const existing = state.records.find((record) => record.vimeoUrl === vimeoUrl);
   if (existing && !window.confirm(`"${existing.title}" already uses this Vimeo link. Add it to the queue anyway?`)) return;
 
@@ -394,7 +465,13 @@ async function addToQueue() {
   try {
     const { error } = await supabase
       .from("videos")
-      .insert({ name: title, vimeo_url: vimeoUrl, status: "in_progress", tags: [serializeTag(startOfGameTag())] });
+      .insert({
+        name: title,
+        vimeo_url: vimeoUrl,
+        status: "in_progress",
+        tags: [serializeTag(startOfGameTag())],
+        ...(state.teamsAvailable ? { team_id: activeTeamId() } : {}),
+      });
     if (error) throw error;
     $("#videoName").value = "";
     $("#videoUrl").value = "";
@@ -439,9 +516,11 @@ function renderLibrary() {
       title.textContent = record.title;
       const incomplete = record.tags.filter((tag) => !isComplete(tag)).length;
       const details = document.createElement("span");
+      const teamName = state.teams.find((team) => team.id === record.teamId)?.name || "";
       details.textContent = status === "queued"
-        ? `Added ${new Date(record.createdAt).toLocaleDateString()}`
+        ? [teamName, `Added ${new Date(record.createdAt).toLocaleDateString()}`].filter(Boolean).join(" · ")
         : [
+          teamName,
           plural(record.tags.filter((tag) => !markerTypes.has(tag.eventType)).length, "moment"),
           incomplete ? `${incomplete} need${incomplete === 1 ? "s" : ""} a type` : "",
           `Updated ${new Date(record.updatedAt).toLocaleDateString()}`,
@@ -593,10 +672,387 @@ async function loadLibrary() {
     createdAt: record.created_at,
     updatedAt: record.updated_at,
     publishedAt: record.published_at,
+    teamId: record.team_id ?? null,
     tags: record.tags,
   }));
-  await loadPlaylists();
+  await Promise.all([loadPlaylists(), loadTeams()]);
+  renderTeamOptions();
   renderLibrary();
+  renderTeams();
+}
+
+// Teams are optional: if database/004_teams.sql has not been run yet, videos simply have no team and
+// players are typed as names.
+async function loadTeams() {
+  const [teams, members] = await Promise.all([
+    supabase.from("teams").select("*").order("name"),
+    supabase.from("team_members").select("*").order("created_at"),
+  ]);
+  if (teams.error || members.error) {
+    console.warn("Teams are unavailable:", teams.error || members.error);
+    state.teamsAvailable = false;
+    state.teams = [];
+    state.members = [];
+    state.memberById = new Map();
+    return;
+  }
+  state.teamsAvailable = true;
+  state.teams = teams.data.map((team) => ({ id: team.id, name: team.name }));
+  state.members = members.data.map(mapMember);
+  state.memberById = new Map(state.members.map((member) => [member.id, member]));
+}
+
+function mapMember(row) {
+  return {
+    id: row.id,
+    teamId: row.team_id,
+    name: row.name,
+    kind: row.kind,
+    number: row.shirt_number,
+    role: row.staff_role || "",
+    active: row.active,
+  };
+}
+
+// The Team choice in the video form. With one team it is chosen automatically.
+function renderTeamOptions() {
+  const select = $("#videoTeam");
+  const show = state.teamsAvailable && state.teams.length > 0;
+  $("#videoTeamField").hidden = !show;
+  if (!show) return;
+  const current = select.value || state.activeRecord?.teamId || "";
+  select.replaceChildren(
+    ...(state.teams.length > 1 ? [new Option("Choose a team…", "")] : []),
+    ...state.teams.map((team) => new Option(team.name, team.id)),
+  );
+  select.value = state.teams.some((team) => team.id === current) ? current : (state.teams.length === 1 ? state.teams[0].id : "");
+}
+
+function notifyTeams(message, kind = "") {
+  showNotice("#teamsNotice", message, kind);
+}
+
+// After a squad change, refresh everything that shows player names.
+function refreshAfterTeamChange() {
+  state.memberById = new Map(state.members.map((member) => [member.id, member]));
+  renderTeamOptions();
+  renderLibrary();
+  renderTeams();
+  if (state.activeRecord) renderTags();
+}
+
+function renderTeams() {
+  if (state.role !== "admin") return;
+  $("#teamsUnavailable").hidden = state.teamsAvailable;
+  $("#teamsLayout").hidden = !state.teamsAvailable;
+  if (!state.teamsAvailable) return;
+  if (!state.teams.some((team) => team.id === state.selectedTeamId)) state.selectedTeamId = state.teams[0]?.id || "";
+
+  $("#teamList").replaceChildren(...(state.teams.length ? state.teams.map((team) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "team-choice";
+    button.classList.toggle("active", team.id === state.selectedTeamId);
+    if (team.id === state.selectedTeamId) button.setAttribute("aria-current", "true");
+    const name = document.createElement("strong");
+    name.textContent = team.name;
+    const count = document.createElement("span");
+    const players = teamPlayers(team.id).length;
+    const videos = state.records.filter((record) => record.teamId === team.id).length;
+    count.textContent = `${plural(players, "player")} · ${plural(videos, "video")}`;
+    button.append(name, count);
+    button.addEventListener("click", () => {
+      state.selectedTeamId = team.id;
+      state.editingMemberId = "";
+      renderTeams();
+    });
+    return button;
+  }) : [Object.assign(document.createElement("p"), { className: "empty-state", textContent: "No teams yet. Add one below." })]));
+
+  const team = state.teams.find((item) => item.id === state.selectedTeamId);
+  $("#squadCard").hidden = !team;
+  if (!team) return;
+  if (document.activeElement !== $("#teamNameInput")) $("#teamNameInput").value = team.name;
+
+  const members = state.members.filter((member) => member.teamId === team.id);
+  const players = teamPlayers(team.id);
+  const staff = members.filter((member) => member.kind === "staff" && member.active)
+    .sort((first, second) => first.name.localeCompare(second.name));
+  const removed = members.filter((member) => !member.active)
+    .sort((first, second) => first.name.localeCompare(second.name));
+  $("#squadPlayerCount").textContent = players.length;
+  $("#squadStaffCount").textContent = staff.length;
+  $("#removedCount").textContent = removed.length;
+  $("#playerRows").replaceChildren(...players.map(memberRow));
+  $("#staffRows").replaceChildren(...staff.map(memberRow));
+  $("#removedRows").replaceChildren(...removed.map(memberRow));
+  $("#removedMembers").hidden = removed.length === 0;
+}
+
+// One squad row: read-only with Edit and Remove/Restore, or an inline editor.
+function memberRow(member) {
+  const row = document.createElement("div");
+  row.className = "member-row";
+  const isPlayer = member.kind === "player";
+
+  if (state.editingMemberId === member.id) {
+    row.classList.add("editing");
+    const number = document.createElement("input");
+    number.type = "number";
+    number.min = "0";
+    number.max = "999";
+    number.className = "member-number-input";
+    number.value = member.number ?? "";
+    number.setAttribute("aria-label", "Shirt number");
+    const name = document.createElement("input");
+    name.type = "text";
+    name.maxLength = 120;
+    name.value = member.name;
+    name.setAttribute("aria-label", "Name");
+    const role = document.createElement("input");
+    role.type = "text";
+    role.maxLength = 60;
+    role.value = member.role;
+    role.placeholder = "Role, e.g. Team Manager";
+    role.setAttribute("aria-label", "Role");
+    const save = document.createElement("button");
+    save.type = "button";
+    save.className = "tag-save-button";
+    save.textContent = "Save";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "link-button";
+    cancel.textContent = "Cancel";
+    const submit = () => saveMember(member, {
+      name: name.value.trim(),
+      number: isPlayer ? number.value : null,
+      role: isPlayer ? "" : role.value.trim(),
+    });
+    save.addEventListener("click", submit);
+    for (const input of [number, name, role]) {
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          submit();
+        } else if (event.key === "Escape") {
+          state.editingMemberId = "";
+          renderTeams();
+        }
+      });
+    }
+    cancel.addEventListener("click", () => {
+      state.editingMemberId = "";
+      renderTeams();
+    });
+    row.append(...(isPlayer ? [number, name] : [name, role]), save, cancel);
+    queueMicrotask(() => name.focus());
+    return row;
+  }
+
+  const label = document.createElement("span");
+  label.className = "member-label";
+  if (isPlayer) {
+    const number = document.createElement("span");
+    number.className = "member-number";
+    number.textContent = member.number ?? "–";
+    label.append(number, member.name);
+  } else {
+    label.append(member.name);
+    if (member.role) {
+      const role = document.createElement("span");
+      role.className = "member-role";
+      role.textContent = member.role;
+      label.append(role);
+    }
+  }
+  if (!member.active) {
+    const kind = document.createElement("span");
+    kind.className = "member-role";
+    kind.textContent = isPlayer ? "former player" : "former staff";
+    label.append(kind);
+  }
+  const edit = document.createElement("button");
+  edit.type = "button";
+  edit.className = "link-button";
+  edit.textContent = "Edit";
+  edit.setAttribute("aria-label", `Edit ${member.name}`);
+  edit.addEventListener("click", () => {
+    state.editingMemberId = member.id;
+    renderTeams();
+  });
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = member.active ? "delete-all" : "link-button";
+  toggle.textContent = member.active ? "Remove" : "Restore";
+  toggle.setAttribute("aria-label", `${member.active ? "Remove" : "Restore"} ${member.name}`);
+  toggle.addEventListener("click", () => setMemberActive(member, !member.active));
+  row.append(label, edit, toggle);
+  return row;
+}
+
+function parseShirtNumber(value) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 0 && number <= 999 ? number : NaN;
+}
+
+// Warns (but allows) two active players with the same shirt number.
+function confirmNumberClash(teamId, number, ignoreId = "") {
+  if (number === null) return true;
+  const clash = teamPlayers(teamId).find((member) => member.number === number && member.id !== ignoreId);
+  return !clash || window.confirm(`#${number} is already ${clash.name}'s number. Use it anyway?`);
+}
+
+async function addTeam(event) {
+  event.preventDefault();
+  const name = $("#newTeamName").value.trim();
+  if (!name) return;
+  try {
+    const { data, error } = await supabase.from("teams").insert({ name }).select("*").single();
+    if (error) throw error;
+    state.teams = [...state.teams, { id: data.id, name: data.name }].sort((first, second) => first.name.localeCompare(second.name));
+    state.selectedTeamId = data.id;
+    $("#newTeamName").value = "";
+    refreshAfterTeamChange();
+    notifyTeams(`Added the team "${data.name}". Now add its players.`, "success");
+    $("#newPlayerName").focus();
+  } catch (error) {
+    notifyTeams(`Could not add the team: ${friendlyError(error)}`, "error");
+  }
+}
+
+async function renameTeam(event) {
+  event.preventDefault();
+  const team = state.teams.find((item) => item.id === state.selectedTeamId);
+  const name = $("#teamNameInput").value.trim();
+  if (!team || !name || name === team.name) return;
+  try {
+    const { error } = await supabase.from("teams").update({ name }).eq("id", team.id);
+    if (error) throw error;
+    team.name = name;
+    state.teams.sort((first, second) => first.name.localeCompare(second.name));
+    refreshAfterTeamChange();
+    notifyTeams(`Renamed the team to "${name}".`, "success");
+  } catch (error) {
+    notifyTeams(`Could not rename the team: ${friendlyError(error)}`, "error");
+  }
+}
+
+// Deleting removes the team and its whole squad, so it is only allowed once no videos use the team.
+async function deleteTeam() {
+  const team = state.teams.find((item) => item.id === state.selectedTeamId);
+  if (!team) return;
+  const videos = state.records.filter((record) => record.teamId === team.id).length;
+  if (videos) {
+    notifyTeams(`"${team.name}" still has ${plural(videos, "video")}. Move each one to another team (the Team field when the video is open) or remove it, then delete the team.`, "error");
+    return;
+  }
+  const members = state.members.filter((member) => member.teamId === team.id).length;
+  if (!window.confirm(`Delete "${team.name}"${members ? ` and its squad of ${plural(members, "person")}` : ""}? This cannot be undone.`)) return;
+  try {
+    const { data, error } = await supabase
+      .from("teams")
+      .delete()
+      .eq("id", team.id)
+      .select("id")
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("The team was not deleted. If this keeps happening, re-run database/004_teams.sql in Supabase to allow deleting teams.");
+    state.teams = state.teams.filter((item) => item.id !== team.id);
+    state.members = state.members.filter((member) => member.teamId !== team.id);
+    state.selectedTeamId = "";
+    state.editingMemberId = "";
+    refreshAfterTeamChange();
+    notifyTeams(`Deleted the team "${team.name}".`, "success");
+  } catch (error) {
+    console.error("Team delete failed:", error);
+    const hint = /permission|row-level security/i.test(error?.message || "")
+      ? " Re-run database/004_teams.sql in the Supabase SQL Editor to allow deleting teams."
+      : "";
+    notifyTeams(`Could not delete "${team.name}": ${friendlyError(error)}${hint}`, "error");
+  }
+}
+
+async function addMember(kind, event) {
+  event.preventDefault();
+  const teamId = state.selectedTeamId;
+  const isPlayer = kind === "player";
+  const name = (isPlayer ? $("#newPlayerName") : $("#newStaffName")).value.trim();
+  if (!teamId || !name) return;
+  const number = isPlayer ? parseShirtNumber($("#newPlayerNumber").value) : null;
+  if (Number.isNaN(number)) {
+    notifyTeams("Shirt numbers are whole numbers from 0 to 999.", "error");
+    return;
+  }
+  if (isPlayer && !confirmNumberClash(teamId, number)) return;
+  try {
+    const { data, error } = await supabase
+      .from("team_members")
+      .insert({
+        team_id: teamId,
+        name,
+        kind,
+        shirt_number: number,
+        staff_role: isPlayer ? "" : $("#newStaffRole").value.trim(),
+      })
+      .select("*")
+      .single();
+    if (error) throw error;
+    state.members = [...state.members, mapMember(data)];
+    for (const selector of isPlayer ? ["#newPlayerNumber", "#newPlayerName"] : ["#newStaffName", "#newStaffRole"]) $(selector).value = "";
+    refreshAfterTeamChange();
+    notifyTeams(`Added ${name}.`, "success");
+    (isPlayer ? $("#newPlayerNumber") : $("#newStaffName")).focus();
+  } catch (error) {
+    notifyTeams(`Could not add ${name}: ${friendlyError(error)}`, "error");
+  }
+}
+
+async function saveMember(member, changes) {
+  if (!changes.name) {
+    notifyTeams("A name is needed.", "error");
+    return;
+  }
+  const number = member.kind === "player" ? parseShirtNumber(changes.number) : null;
+  if (Number.isNaN(number)) {
+    notifyTeams("Shirt numbers are whole numbers from 0 to 999.", "error");
+    return;
+  }
+  if (member.kind === "player" && member.active && !confirmNumberClash(member.teamId, number, member.id)) return;
+  try {
+    const { data, error } = await supabase
+      .from("team_members")
+      .update({ name: changes.name, shirt_number: number, staff_role: changes.role })
+      .eq("id", member.id)
+      .select("*")
+      .single();
+    if (error) throw error;
+    state.members = state.members.map((item) => item.id === member.id ? mapMember(data) : item);
+    state.editingMemberId = "";
+    refreshAfterTeamChange();
+    notifyTeams(`Saved ${changes.name}.`, "success");
+  } catch (error) {
+    notifyTeams(`Could not save ${changes.name}: ${friendlyError(error)}`, "error");
+  }
+}
+
+// Removing keeps the member (inactive) so old moments and stats still show them.
+async function setMemberActive(member, active) {
+  if (!active && !window.confirm(`Remove ${member.name} from the squad? They stay on old moments and in stats, but can't be picked for new ones.`)) return;
+  try {
+    const { data, error } = await supabase
+      .from("team_members")
+      .update({ active })
+      .eq("id", member.id)
+      .select("*")
+      .single();
+    if (error) throw error;
+    state.members = state.members.map((item) => item.id === member.id ? mapMember(data) : item);
+    refreshAfterTeamChange();
+    notifyTeams(active ? `${member.name} is back in the squad.` : `Removed ${member.name}. Restore them from Removed if needed.`, "success");
+  } catch (error) {
+    notifyTeams(`Could not update ${member.name}: ${friendlyError(error)}`, "error");
+  }
 }
 
 function tagEventLabel(tag) {
@@ -871,16 +1327,27 @@ function renderWatchStats(record) {
   addRow("All events", counted, "stats-total");
   tableWrap.append(table);
 
-  // Players: names are split on commas and matched ignoring case and extra spaces;
-  // a moment naming two players counts for both.
+  // Players: squad members are counted by identity (so spelling and renames don't split them);
+  // other names are matched ignoring case and extra spaces. A moment naming two players counts for both.
   const players = new Map();
   const unnamed = [];
   for (const tag of counted) {
-    const names = (tag.playerNames || "").split(",").map((name) => name.trim().replace(/\s+/g, " ")).filter(Boolean);
-    if (!names.length) unnamed.push(tag);
-    for (const name of new Set(names.map((item) => item.toLowerCase()))) {
-      if (!players.has(name)) players.set(name, { name: names.find((item) => item.toLowerCase() === name), tags: [] });
-      players.get(name).tags.push(tag);
+    const { ids, others } = tagPlayers(tag, record.teamId);
+    const people = [];
+    for (const id of ids) {
+      const member = state.memberById.get(id);
+      if (member) people.push({ key: id, name: memberLabel(member) });
+    }
+    for (const name of others) people.push({ key: `other:${normalizeName(name)}`, name });
+    // Without access to the squad, fall back to the names saved on the moment.
+    if (!people.length && ids.length) {
+      for (const name of splitNames(tag.playerNames)) people.push({ key: `other:${normalizeName(name)}`, name });
+    }
+    if (!people.length) unnamed.push(tag);
+    for (const person of people) {
+      if (!players.has(person.key)) players.set(person.key, { name: person.name, tags: [] });
+      const entry = players.get(person.key);
+      if (!entry.tags.includes(tag)) entry.tags.push(tag);
     }
   }
   const playerRows = [...players.values()].sort((first, second) =>
@@ -1509,7 +1976,7 @@ function renderTagRow(tag, done) {
     chip.addEventListener("click", () => {
       eventType.value = value;
       applyEventType(value);
-      playerNames.focus();
+      (addPlayer.hidden ? playerNames : addPlayer).focus();
     });
     quickTypes.append(chip);
   }
@@ -1540,15 +2007,93 @@ function renderTagRow(tag, done) {
   });
   customWrap.append(customEvent);
 
+  // Players: pick from the video's squad (chips), plus "Other name…" for opponents or guests.
+  const picker = document.createElement("div");
+  picker.className = "player-picker";
+  const chips = document.createElement("div");
+  chips.className = "player-chips";
+  const addPlayer = document.createElement("select");
+  addPlayer.className = "player-add";
+  addPlayer.setAttribute("aria-label", `Add a player at ${time}`);
   const playerNames = document.createElement("input");
   playerNames.className = "player-names";
   playerNames.type = "text";
   playerNames.maxLength = 200;
-  playerNames.value = tag.playerNames || "";
-  playerNames.placeholder = "Player name(s), comma separated";
   playerNames.setAttribute("list", "playerNameOptions");
-  playerNames.setAttribute("aria-label", `Player names at ${time}`);
-  playerNames.addEventListener("input", () => updateTag(tag.id, { playerNames: playerNames.value }));
+  playerNames.setAttribute("aria-label", `Other player names at ${time}`);
+  picker.append(chips, addPlayer, playerNames);
+  let showOther = false;
+
+  function currentTag() {
+    return state.tags.find((item) => item.id === tag.id) || tag;
+  }
+
+  function renderPicker() {
+    const current = currentTag();
+    const ids = current.playerIds || [];
+    const squad = teamPlayers(activeTeamId());
+    chips.replaceChildren(...ids.map((id) => {
+      const member = state.memberById.get(id);
+      const chip = document.createElement("span");
+      chip.className = "player-chip";
+      chip.textContent = member ? `${memberLabel(member)}${member.active ? "" : " (former)"}` : "Unknown player";
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "player-chip-remove";
+      remove.textContent = "×";
+      remove.setAttribute("aria-label", `Remove ${member?.name || "player"} from this moment`);
+      remove.addEventListener("click", () => {
+        updateTag(tag.id, { playerIds: (currentTag().playerIds || []).filter((item) => item !== id) });
+        renderPicker();
+        addPlayer.focus();
+      });
+      chip.append(remove);
+      return chip;
+    }));
+    chips.hidden = ids.length === 0;
+    addPlayer.replaceChildren(
+      new Option(squad.length ? "Add player…" : "Add a name…", ""),
+      ...squad.filter((member) => !ids.includes(member.id))
+        .map((member) => new Option(member.number === null ? member.name : `${member.number} · ${member.name}`, member.id)),
+      new Option("Other name…", "__other"),
+    );
+    addPlayer.value = "";
+    addPlayer.hidden = squad.length === 0;
+    const others = current.otherPlayers || "";
+    if (document.activeElement !== playerNames) playerNames.value = others;
+    playerNames.placeholder = squad.length ? "Other names (opponents, guests), comma separated" : "Player name(s), comma separated";
+    playerNames.hidden = squad.length > 0 && !others && !showOther;
+  }
+
+  addPlayer.addEventListener("change", () => {
+    if (addPlayer.value === "__other") {
+      showOther = true;
+      renderPicker();
+      playerNames.focus();
+      return;
+    }
+    if (addPlayer.value) updateTag(tag.id, { playerIds: [...(currentTag().playerIds || []), addPlayer.value] });
+    renderPicker();
+    addPlayer.focus();
+  });
+  playerNames.addEventListener("input", () => updateTag(tag.id, { otherPlayers: playerNames.value }));
+  // A typed name that matches the squad becomes that player when the field is left.
+  playerNames.addEventListener("change", () => {
+    const squad = teamPlayers(activeTeamId());
+    const ids = [...(currentTag().playerIds || [])];
+    const others = [];
+    for (const name of splitNames(playerNames.value)) {
+      const match = squad.find((member) => normalizeName(member.name) === normalizeName(name));
+      if (!match) others.push(name);
+      else if (!ids.includes(match.id)) ids.push(match.id);
+    }
+    if (others.join(", ") !== splitNames(playerNames.value).join(", ")) {
+      updateTag(tag.id, { playerIds: ids, otherPlayers: others.join(", ") });
+      playerNames.value = others.join(", ");
+      renderPicker();
+    }
+  });
+  renderPicker();
 
   const note = document.createElement("input");
   note.className = "moment-note";
@@ -1592,6 +2137,8 @@ function renderTagRow(tag, done) {
       input.addEventListener("keydown", (event) => {
         if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
         event.preventDefault();
+        // Link any typed squad names before the row moves to Done.
+        if (input === playerNames) playerNames.dispatchEvent(new Event("change"));
         markDone(tag.id);
       });
     }
@@ -1629,7 +2176,7 @@ function renderTagRow(tag, done) {
     if (!done) doneButton.disabled = !complete;
   }
 
-  details.append(timeEditor, status, quickTypes, eventType, customWrap, playerNames, note, rowActions);
+  details.append(timeEditor, status, quickTypes, eventType, customWrap, picker, note, rowActions);
   row.append(timeColumn, details, deleteButton);
   refreshRow();
   return row;
@@ -1770,6 +2317,8 @@ async function markMoment() {
       timestampSeconds,
       eventType: "",
       customEventType: "",
+      playerIds: [],
+      otherPlayers: "",
       playerNames: "",
       note: "",
       done: false,
@@ -1891,7 +2440,14 @@ async function openVideo(value, record = null) {
   }
 
   state.video = video;
-  state.tags = record ? (record.tags || []).map(normalizeTag).sort(byTime) : [];
+  if (record && state.teamsAvailable) {
+    renderTeamOptions();
+    $("#videoTeam").value = record.teamId && state.teams.some((team) => team.id === record.teamId)
+      ? record.teamId
+      : (state.teams.length === 1 ? state.teams[0].id : "");
+  }
+  const teamId = activeTeamId();
+  state.tags = record ? (record.tags || []).map((tag) => withPlayers(normalizeTag(tag), teamId)).sort(byTime) : [];
   // A video with no moments yet starts with Start of game at 00:10. It is not an unsaved change on its
   // own: if the admin leaves without saving, it is simply added again next time.
   if (!state.tags.length) state.tags = [startOfGameTag()];
@@ -1903,6 +2459,7 @@ async function openVideo(value, record = null) {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     publishedAt: null,
+    teamId,
     tags: [],
   };
   state.isDirty = false;
@@ -1963,6 +2520,7 @@ function videoPayload() {
   if (video.id !== state.video.id || video.hash !== state.video.hash) {
     throw new Error("The Vimeo link changed. Open that link before saving its moments.");
   }
+  if (state.teamsAvailable && state.teams.length && !activeTeamId()) throw new Error("Choose the team for this video.");
   return {
     id: state.activeRecord.id,
     title,
@@ -2011,6 +2569,7 @@ async function saveVideo(mode = "progress") {
         tags: payload.tags,
         updated_at: now,
         published_at: publish ? now : mode === "unpublish" ? null : state.activeRecord.publishedAt,
+        ...(state.teamsAvailable ? { team_id: activeTeamId() } : {}),
       }, { onConflict: "id" })
       .select("*")
       .single();
@@ -2023,11 +2582,12 @@ async function saveVideo(mode = "progress") {
       createdAt: data.created_at,
       updatedAt: data.updated_at,
       publishedAt: data.published_at,
+      teamId: data.team_id ?? null,
       tags: data.tags,
     };
     state.activeRecord = saved;
     state.isDirty = false;
-    state.tags = saved.tags.map(normalizeTag).sort(byTime);
+    state.tags = saved.tags.map((tag) => withPlayers(normalizeTag(tag), saved.teamId)).sort(byTime);
     $("#videoName").value = saved.title;
     $("#videoUrl").value = saved.vimeoUrl;
     $("#saveHint").textContent = `Saved ${saved.status === "published" ? "as published" : "in progress"}`;
@@ -2102,6 +2662,11 @@ function showSignedOut() {
   state.playlist = null;
   state.playlists = [];
   state.linkedPlaylistId = "";
+  state.teams = [];
+  state.members = [];
+  state.memberById = new Map();
+  state.selectedTeamId = "";
+  state.editingMemberId = "";
   state.isSaving = false;
   exitStage();
   $("#tagPanel").classList.remove("has-video");
@@ -2308,6 +2873,26 @@ $("#playSelectedButton").addEventListener("click", () => {
   const tags = selectedWatchTags();
   const types = new Set(tags.map(tagEventLabel));
   startPlaylist(tags, types.size === 1 ? [...types][0] : "Selected clips");
+});
+$("#addTeamForm").addEventListener("submit", addTeam);
+$("#renameTeamForm").addEventListener("submit", renameTeam);
+$("#deleteTeamButton").addEventListener("click", deleteTeam);
+$("#addPlayerForm").addEventListener("submit", (event) => addMember("player", event));
+$("#addStaffForm").addEventListener("submit", (event) => addMember("staff", event));
+$("#videoTeam").addEventListener("change", () => {
+  if (!state.activeRecord) return;
+  // Picked players belong to the old team's squad: turn them back into names, then link any names
+  // that match the new team's squad.
+  state.tags = state.tags.map((tag) => {
+    const names = [
+      ...(tag.playerIds || []).map((id) => state.memberById.get(id)?.name).filter(Boolean),
+      ...splitNames(tag.otherPlayers),
+    ];
+    const { playerIds, ...rest } = tag;
+    return withPlayers({ ...rest, playerNames: names.join(", ") }, activeTeamId());
+  });
+  setDirty();
+  renderTags();
 });
 $("#watchViewEventsButton").addEventListener("click", () => setWatchView("events"));
 $("#watchViewStatsButton").addEventListener("click", () => setWatchView("stats"));

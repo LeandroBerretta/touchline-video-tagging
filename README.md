@@ -20,6 +20,9 @@ cloud video library. The videos remain hosted by Vimeo.
    if the table was created from an earlier version.
    Then run `database/003_playlists.sql` to enable saved, shareable
    playlists.
+   Then run `database/004_teams.sql` to add teams and squads. Add teams and
+   players in the app's Teams tab; never commit squad lists to this public
+   repository.
 2. Create one admin and one viewer in **Authentication → Users**.
 3. Copy their Auth user IDs into `database/002_assign_roles.sql` and run it.
    Never add passwords or secret/service-role keys to the repository.

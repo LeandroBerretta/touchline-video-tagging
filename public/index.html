@@ -18,6 +18,7 @@
       <nav id="appTabs" class="tabs" aria-label="Main navigation" hidden>
         <button class="tab-button active" type="button" data-tab="tag" aria-selected="true">Tag videos</button>
         <button class="tab-button" type="button" data-tab="watch" aria-selected="false">Watch videos</button>
+        <button class="tab-button" type="button" data-tab="teams" aria-selected="false">Teams</button>
       </nav>
       <span id="signedInLabel" class="topbar-note"></span>
       <button id="signOutButton" class="button button-outline sign-out-button" type="button" hidden>Sign out</button>
@@ -113,6 +114,10 @@
                 <button id="toggleLibraryButton" class="link-button" type="button" aria-controls="libraryCard" aria-expanded="true">Hide library</button>
               </div>
               <form id="videoForm" class="video-form">
+                <div id="videoTeamField" class="video-team-field" hidden>
+                  <label for="videoTeam">Team</label>
+                  <select id="videoTeam"></select>
+                </div>
                 <label for="videoName">Video name</label>
                 <input id="videoName" name="videoName" type="text" maxlength="200" placeholder="e.g. VAFC vs Saanich — September 30" required>
                 <label for="videoUrl">Vimeo link</label>
@@ -177,6 +182,62 @@
                 <button id="publishVideoButton" class="button button-primary" type="button" disabled>Publish video</button>
               </div>
             </section>
+          </section>
+        </div>
+      </section>
+
+      <section id="teamsPanel" class="tab-panel teams-panel" aria-labelledby="teamsHeading" hidden>
+        <section class="intro">
+          <p class="eyebrow">TEAMS</p>
+          <h1 id="teamsHeading">Teams and squads</h1>
+          <p class="subtitle">Each video belongs to a team. When you tag, players are picked from that team's squad.</p>
+        </section>
+        <div id="teamsNotice" class="notice" role="status" aria-live="polite"></div>
+        <p id="teamsUnavailable" class="empty-state" hidden>Teams need a one-time database update: run database/004_teams.sql in the Supabase SQL Editor, then reload this page.</p>
+        <div id="teamsLayout" class="teams-layout">
+          <section class="teams-list-card" aria-labelledby="teamListHeading">
+            <h2 id="teamListHeading">Teams</h2>
+            <div id="teamList" class="team-list"></div>
+            <form id="addTeamForm" class="team-form">
+              <label for="newTeamName">New team</label>
+              <div class="inline-row">
+                <input id="newTeamName" type="text" maxlength="80" required placeholder="Team name">
+                <button class="button button-outline" type="submit">Add team</button>
+              </div>
+            </form>
+          </section>
+          <section id="squadCard" class="squad-card" aria-labelledby="squadHeading" hidden>
+            <form id="renameTeamForm" class="team-form">
+              <label id="squadHeading" for="teamNameInput">Team name</label>
+              <div class="inline-row">
+                <input id="teamNameInput" type="text" maxlength="80" required>
+                <button class="button button-outline" type="submit">Rename</button>
+              </div>
+            </form>
+            <h3 class="squad-heading">Players <span id="squadPlayerCount" class="count-bubble">0</span></h3>
+            <div id="playerRows" class="member-rows"></div>
+            <form id="addPlayerForm" class="inline-row add-member-form">
+              <input id="newPlayerNumber" type="number" min="0" max="999" placeholder="#" aria-label="New player's shirt number">
+              <input id="newPlayerName" type="text" maxlength="120" required placeholder="Player name" aria-label="New player's name">
+              <button class="button button-outline" type="submit">Add player</button>
+            </form>
+            <h3 class="squad-heading">Staff <span id="squadStaffCount" class="count-bubble">0</span></h3>
+            <p class="form-hint">Staff are kept with the team but are never offered when tagging players. Viewers can't see them.</p>
+            <div id="staffRows" class="member-rows"></div>
+            <form id="addStaffForm" class="inline-row add-member-form">
+              <input id="newStaffName" type="text" maxlength="120" required placeholder="Name" aria-label="New staff member's name">
+              <input id="newStaffRole" type="text" maxlength="60" placeholder="Role, e.g. Team Manager" aria-label="New staff member's role">
+              <button class="button button-outline" type="submit">Add staff</button>
+            </form>
+            <details id="removedMembers" class="removed-members" hidden>
+              <summary>Removed <span id="removedCount" class="count-bubble">0</span></summary>
+              <p class="form-hint">Removed people stay on old moments and in stats. Restore them to pick them again.</p>
+              <div id="removedRows" class="member-rows"></div>
+            </details>
+            <div class="delete-team-row">
+              <p class="form-hint">Deleting a team also deletes its squad. It is only possible once no videos belong to the team.</p>
+              <button id="deleteTeamButton" class="delete-all" type="button">Delete team</button>
+            </div>
           </section>
         </div>
       </section>
