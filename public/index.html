@@ -92,6 +92,12 @@
               </div>
               <button id="newVideoButton" class="button button-outline" type="button">＋ New video</button>
             </div>
+            <div class="library-filters">
+              <input id="librarySearch" type="search" placeholder="Search videos" aria-label="Search videos by name" autocomplete="off">
+              <select id="libraryTeamFilter" aria-label="Show videos for one team" hidden>
+                <option value="">All teams</option>
+              </select>
+            </div>
             <div class="library-columns">
               <section aria-labelledby="queueHeading">
                 <h3 id="queueHeading">Not started <span id="queueCount" class="count-bubble">0</span></h3>

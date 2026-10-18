@@ -17,7 +17,7 @@ done, mark it and pick the next together.
 | 8 | **Usability A: protect work.** Autosave In progress videos; a banner when the video has taken the keyboard. | Shipped 2026-10-17 |
 | 9 | **Usability B: Tag layout.** Keys behind a ? button, compact moment rows with a Match order view, collapsed video form, timeline markers under the video. Match order is the default view. | Shipped 2026-10-17 |
 | 10 | **Usability C: Watch.** Video list instead of a dropdown, simpler play options for viewers, clip length in the playlist bar, pinned playlist bar, phone layout. Built as video cards with a team filter, a Choose clips mode, a shared clip-length row and a sticky / bottom-pinned playlist bar, plus a match timeline under the Watch video. | Shipped 2026-10-17 |
-| 11 | **Usability D: Library.** Search and team filter. | Planned |
+| 11 | **Usability D: Library.** Search and team filter. | Shipped 2026-10-17 |
 
 ## Out of reach with Vimeo embeds
 

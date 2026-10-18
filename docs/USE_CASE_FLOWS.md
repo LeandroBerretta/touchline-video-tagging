@@ -220,6 +220,7 @@ from the editor, any unsaved edits are saved with it.
 
 ```mermaid
 flowchart TD
+  A0[Optional: search by name, filter by team] --> A
   A[Library: Not started, In progress or Published list] --> B[Click a video]
   B --> C{Unsaved changes?}
   C -- Yes --> D{Confirm discard?}

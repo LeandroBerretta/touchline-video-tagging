@@ -452,6 +452,8 @@ textarea:focus { border-color: #7caf5c; box-shadow: 0 0 0 3px #a8f27733; }
 }
 
 /* ---- Watch (Batch C) ---- */
+.library-filters { display: grid; gap: 8px; margin-bottom: 14px; }
+.library-filters input, .library-filters select { width: 100%; padding: 9px 11px; font-size: 13px; }
 .watch-video-list { display: flex; gap: 10px; overflow-x: auto; padding: 2px 2px 8px; scroll-snap-type: x proximity; }
 .watch-video-list .empty-state { margin: 0; }
 .watch-video-card { display: grid; flex: 0 0 240px; gap: 4px; min-height: 64px; border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; color: var(--text); text-align: left; background: #121914; cursor: pointer; scroll-snap-align: start; }

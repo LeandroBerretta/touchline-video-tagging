@@ -90,6 +90,8 @@ const state = {
   bulkIds: new Set(),
   tagView: "match",
   watchTeamFilter: "",
+  libraryQuery: "",
+  libraryTeam: "",
   watchDuration: 0,
   watchChoosing: false,
   expandedTagId: "",
@@ -631,13 +633,36 @@ async function addToQueue() {
   }
 }
 
+// Library search and team filter: the search matches video names (ignoring capitals); the team filter
+// only appears once there is more than one team.
+function libraryFilterActive() {
+  return !!state.libraryQuery.trim() || !!state.libraryTeam;
+}
+
+function matchesLibraryFilter(record) {
+  const query = state.libraryQuery.trim().toLowerCase();
+  return (!query || record.title.toLowerCase().includes(query))
+    && (!state.libraryTeam || record.teamId === state.libraryTeam);
+}
+
+function renderLibraryTeamFilter() {
+  const usedTeams = state.teams.filter((team) => state.records.some((record) => record.teamId === team.id));
+  $("#libraryTeamFilter").hidden = usedTeams.length < 2;
+  if (!usedTeams.some((team) => team.id === state.libraryTeam)) state.libraryTeam = "";
+  const select = $("#libraryTeamFilter");
+  select.replaceChildren(new Option("All teams", ""), ...usedTeams.map((team) => new Option(team.name, team.id)));
+  select.value = state.libraryTeam;
+}
+
 function renderLibrary() {
+  renderLibraryTeamFilter();
+  const filtering = libraryFilterActive();
   for (const [status, listSelector, countSelector, emptyMessage] of [
     ["queued", "#queueList", "#queueCount", "Nothing waiting. Use Add to queue to line up a video."],
     ["in_progress", "#inProgressList", "#inProgressCount", "No videos in progress."],
     ["published", "#publishedList", "#publishedCount", "No published videos yet."],
   ]) {
-    const records = state.records.filter((record) => librarySection(record) === status);
+    const records = state.records.filter((record) => librarySection(record) === status && matchesLibraryFilter(record));
     // The queue is first come, first served; the other lists show the most recently updated first.
     if (status === "queued") records.sort((first, second) => first.createdAt.localeCompare(second.createdAt));
     $(countSelector).textContent = records.length;
@@ -645,7 +670,7 @@ function renderLibrary() {
     if (!records.length) {
       const empty = document.createElement("p");
       empty.className = "empty-state";
-      empty.textContent = emptyMessage;
+      empty.textContent = filtering ? "No matching videos." : emptyMessage;
       list.replaceChildren(empty);
       continue;
     }
@@ -3623,6 +3648,20 @@ $("#newVideoButton").addEventListener("click", startNewVideo);
 $("#queueVideoButton").addEventListener("click", addToQueue);
 document.querySelectorAll(".tab-button").forEach((button) => {
   button.addEventListener("click", () => setTab(button.dataset.tab));
+});
+$("#librarySearch").addEventListener("input", () => {
+  state.libraryQuery = $("#librarySearch").value;
+  renderLibrary();
+});
+$("#librarySearch").addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  $("#librarySearch").value = "";
+  state.libraryQuery = "";
+  renderLibrary();
+});
+$("#libraryTeamFilter").addEventListener("change", () => {
+  state.libraryTeam = $("#libraryTeamFilter").value;
+  renderLibrary();
 });
 $("#watchTeamFilter").addEventListener("change", () => {
   state.watchTeamFilter = $("#watchTeamFilter").value;
