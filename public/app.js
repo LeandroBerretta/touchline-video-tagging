@@ -43,7 +43,11 @@ const markerTypes = new Set(["start_of_game", "half_time", "end_of_game"]);
 // New videos get a Start of game moment here; admins move it with Edit if the game starts elsewhere.
 const defaultStartOfGameSeconds = 10;
 // Shown as one-tap buttons on moments that still need a type.
-const quickEventTypes = ["throw_in", "kick_off", "corner", "shot_off_target", "shot_on_target", "goal"];
+const defaultQuickTypes = ["throw_in", "kick_off", "corner", "shot_off_target", "shot_on_target", "goal"];
+// Each quick type gets a key along the top letter row, in order; admins choose up to nine types.
+const quickKeys = ["q", "w", "e", "r", "t", "y", "u", "i", "o"];
+const quickTypesStorageKey = "touchline.quickTypes";
+const pauseOnMarkStorageKey = "touchline.pauseOnMark";
 const markOffsetChoices = [0, 3, 5, 10];
 const markOffsetStorageKey = "touchline.markOffsetSeconds";
 const libraryHiddenStorageKey = "touchline.libraryHidden";
@@ -77,6 +81,11 @@ const state = {
   playlistsAvailable: true,
   linkedPlaylistId: "",
   watchView: "events",
+  quickTypes: [...defaultQuickTypes],
+  lastMarkedId: null,
+  numberBuffer: "",
+  shiftNumber: false,
+  bulkIds: new Set(),
   teams: [],
   members: [],
   memberById: new Map(),
@@ -412,7 +421,7 @@ function refreshActions() {
   $("#tagCount").textContent = state.tags.length;
   // The line keeps its height when empty, so the Mark moment button below it never shifts under the pointer.
   $("#incompleteCount").textContent = incomplete ? `${incomplete} need${incomplete === 1 ? "s" : ""} a type` : "";
-  document.querySelectorAll(".tag-time, .use-video-time").forEach((button) => { button.disabled = !state.playerReady; });
+  document.querySelectorAll(".tag-time, .use-video-time, .quick-key").forEach((button) => { button.disabled = !state.playerReady; });
 }
 
 // "Not started" is not stored separately: an unpublished video with no moments yet is in the queue,
@@ -1872,6 +1881,7 @@ function markDone(id) {
   }
   updateTag(id, { done: true });
   renderTags();
+  goToNextTodo(tag);
   notify(`Done: ${tagEventLabel(tag)} at ${formatTime(tag.timestampSeconds)}.`, "success", {
     label: "Undo",
     onClick: () => {
@@ -1911,6 +1921,20 @@ function renderTagRow(tag, done) {
   const timeColumn = document.createElement("div");
   timeColumn.className = "tag-time-col";
   timeColumn.append(seekButton, editTimeButton);
+  if (!done) {
+    const pick = document.createElement("input");
+    pick.type = "checkbox";
+    pick.className = "bulk-pick";
+    pick.checked = state.bulkIds.has(tag.id);
+    pick.setAttribute("aria-label", `Select the moment at ${time} to edit several at once`);
+    pick.addEventListener("change", () => {
+      if (pick.checked) state.bulkIds.add(tag.id);
+      else state.bulkIds.delete(tag.id);
+      renderTags();
+      document.querySelector(`[data-tag-id="${tag.id}"] .bulk-pick`)?.focus();
+    });
+    timeColumn.append(pick);
+  }
 
   const details = document.createElement("div");
   details.className = "tag-details";
@@ -2003,7 +2027,7 @@ function renderTagRow(tag, done) {
   quickTypes.className = "quick-types";
   quickTypes.setAttribute("role", "group");
   quickTypes.setAttribute("aria-label", `Quick event types for ${time}`);
-  for (const value of quickEventTypes) {
+  for (const value of state.quickTypes) {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "quick-type";
@@ -2265,8 +2289,26 @@ function sectionHeader(text, tags) {
 function momentRows(tags, done) {
   const list = document.createElement("ol");
   list.className = "moment-rows";
-  list.append(...tags.map((tag) => renderTagRow(tag, done)));
+  list.append(...tags.map((tag) => safeTagRow(tag, done)));
   return list;
+}
+
+// One moment that fails to draw must never blank the whole list: show a placeholder row instead and
+// log the details, so the rest of the moments stay usable (and still save).
+function safeTagRow(tag, done) {
+  try {
+    return renderTagRow(tag, done);
+  } catch (error) {
+    console.error("Could not draw the moment", tag, error);
+    const row = document.createElement("li");
+    row.className = "tag-row incomplete";
+    row.dataset.tagId = tag.id;
+    const text = document.createElement("p");
+    text.className = "tag-status";
+    text.textContent = `The moment at ${formatTime(tag.timestampSeconds || 0)} couldn't be shown (${error?.message || error}). It is still saved with the video.`;
+    row.append(text);
+    return row;
+  }
 }
 
 // Done groups follow the event-type list (Goal, Assist, Shot…), with custom "Other" names last.
@@ -2280,11 +2322,20 @@ function renderTags() {
   const todo = state.tags.filter((tag) => !isDone(tag));
   const done = state.tags.filter(isDone);
   const sections = [];
+  // Only moments still in To do can be selected for editing several at once.
+  state.bulkIds = new Set(todo.filter((tag) => state.bulkIds.has(tag.id)).map((tag) => tag.id));
 
   if (state.tags.length) {
     const todoSection = document.createElement("section");
     todoSection.className = "moment-group moment-group-todo";
     todoSection.append(sectionHeader("To do", todo));
+    if (todo.length > 1) {
+      try {
+        todoSection.append(bulkBar(todo));
+      } catch (error) {
+        console.error("Could not draw the edit-several bar", error);
+      }
+    }
     if (todo.length) {
       todoSection.append(momentRows(todo, false));
     } else {
@@ -2329,6 +2380,7 @@ function renderTags() {
 
   $("#tagList").replaceChildren(...sections);
   renderPlayerSuggestions();
+  renderLastMarked();
   refreshActions();
 }
 
@@ -2337,12 +2389,239 @@ function setPlayerReady(ready) {
   refreshActions();
 }
 
+// ---- Faster tagging: quick-type keys, shirt numbers, undo, options ----
+
+function loadQuickTypes() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(quickTypesStorageKey) || "null");
+    if (Array.isArray(saved)) {
+      // Keep the saved order: it decides which key each type gets.
+      const valid = [...new Set(saved)].filter((value) => value && value !== "other" && eventTypes.some(([type]) => type === value));
+      if (valid.length) return valid.slice(0, quickKeys.length);
+    }
+  } catch {
+    // Storage unavailable or damaged: use the defaults.
+  }
+  return [...defaultQuickTypes];
+}
+
+function eventTypeName(value) {
+  return eventTypes.find(([type]) => type === value)?.[1] || value;
+}
+
+// The on-screen quick-type buttons under Mark moment, each showing its key.
+function renderQuickBar() {
+  $("#quickBar").replaceChildren(...state.quickTypes.map((value, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "quick-key";
+    button.disabled = !state.playerReady;
+    const key = document.createElement("kbd");
+    key.textContent = quickKeys[index].toUpperCase();
+    button.append(key, ` ${eventTypeName(value)}`);
+    button.setAttribute("aria-label", `Mark ${eventTypeName(value)} (key ${quickKeys[index].toUpperCase()})`);
+    // Keep keyboard focus where it was, so the keys keep working after a click.
+    button.addEventListener("mousedown", (event) => event.preventDefault());
+    button.addEventListener("click", () => markMoment(value));
+    return button;
+  }));
+}
+
+// Tagging options: which event types are quick types (up to nine). Keys follow the order they were
+// ticked in, so unticking one never moves the others to different keys except those after it.
+function renderQuickTypeChoices() {
+  const full = state.quickTypes.length >= quickKeys.length;
+  $("#quickTypeChoices").replaceChildren(...eventTypes
+    .filter(([value]) => value && value !== "other")
+    .map(([value, label]) => {
+      const choice = document.createElement("label");
+      choice.className = "quick-type-choice";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = state.quickTypes.includes(value);
+      box.disabled = full && !box.checked;
+      box.addEventListener("change", () => {
+        const chosen = box.checked
+          ? [...state.quickTypes, value]
+          : state.quickTypes.filter((type) => type !== value);
+        if (!chosen.length) {
+          box.checked = true;
+          notify("Keep at least one quick type.", "error");
+          return;
+        }
+        state.quickTypes = chosen;
+        try {
+          window.localStorage.setItem(quickTypesStorageKey, JSON.stringify(state.quickTypes));
+        } catch {
+          // Remembering the choice is a convenience only.
+        }
+        renderQuickBar();
+        renderQuickTypeChoices();
+        renderTags();
+      });
+      choice.append(box, ` ${label}`);
+      return choice;
+    }));
+}
+
+function renderLastMarked() {
+  const tag = state.tags.find((item) => item.id === state.lastMarkedId);
+  $("#lastMarked").hidden = !tag;
+  if (!tag) {
+    state.numberBuffer = "";
+    return;
+  }
+  const players = (tag.playerIds || []).map((id) => state.memberById.get(id)).filter(Boolean).map(memberLabel);
+  $("#lastMarkedText").textContent = `Last: ${isComplete(tag) ? tagEventLabel(tag) : "untyped moment"} at ${formatTime(tag.timestampSeconds)}${players.length ? ` · ${players.join(", ")}` : ""}`;
+  $("#lastMarkedNumber").textContent = state.numberBuffer ? `#${state.numberBuffer}` : "";
+  $("#lastMarkedNumber").hidden = !state.numberBuffer;
+  const hasSquad = teamPlayers(activeTeamId()).length > 0;
+  $("#lastMarkedHint").textContent = [
+    hasSquad ? "Shift + shirt number adds a player" : "",
+    "Backspace undoes this mark",
+  ].filter(Boolean).join(" · ");
+}
+
+function assignShirtNumber() {
+  const digits = state.numberBuffer;
+  state.numberBuffer = "";
+  const tag = state.tags.find((item) => item.id === state.lastMarkedId);
+  if (!tag || !digits) {
+    renderLastMarked();
+    return;
+  }
+  const number = Number(digits);
+  const player = teamPlayers(activeTeamId()).find((member) => member.number === number);
+  if (!player) {
+    notify(`No #${number} in this video's squad.`, "error");
+    renderLastMarked();
+    return;
+  }
+  if (!(tag.playerIds || []).includes(player.id)) {
+    updateTag(tag.id, { playerIds: [...(tag.playerIds || []), player.id] });
+  }
+  renderTags();
+  notify(`Added ${memberLabel(player)} to the ${isComplete(tag) ? tagEventLabel(tag) : "moment"} at ${formatTime(tag.timestampSeconds)}.`, "success");
+}
+
+function undoLastMark() {
+  const id = state.lastMarkedId;
+  if (!id || !state.tags.some((tag) => tag.id === id)) return;
+  state.lastMarkedId = null;
+  deleteMoment(id);
+}
+
+// After ticking off a moment in the review pass: go to the next one still to do. Only while the video
+// is paused, so a tick during live tagging never moves playback or takes the keyboard away.
+function goToNextTodo(afterTag) {
+  const todo = state.tags.filter((tag) => !isDone(tag)).sort(byTime);
+  const next = todo.find((tag) => tag.timestampSeconds >= afterTag.timestampSeconds) || todo[0];
+  if (!next || !state.player) return;
+  state.player.getPaused()
+    .then((paused) => {
+      if (!paused) return;
+      state.player.setCurrentTime(Math.max(0, next.timestampSeconds - watchLeadSeconds)).catch(() => {});
+      document.querySelector(`[data-tag-id="${next.id}"] .event-type`)?.focus();
+    })
+    .catch(() => {});
+}
+
+// Edit several To do moments at once.
+function bulkBar(todo) {
+  const ids = todo.filter((tag) => state.bulkIds.has(tag.id)).map((tag) => tag.id);
+  const bar = document.createElement("div");
+  bar.className = "bulk-bar";
+  const allLabel = document.createElement("label");
+  allLabel.className = "bulk-all";
+  const all = document.createElement("input");
+  all.type = "checkbox";
+  all.checked = ids.length > 0 && ids.length === todo.length;
+  all.indeterminate = ids.length > 0 && ids.length < todo.length;
+  all.addEventListener("change", () => {
+    state.bulkIds = all.checked ? new Set(todo.map((tag) => tag.id)) : new Set();
+    renderTags();
+  });
+  allLabel.append(all, ids.length ? ` ${ids.length} selected` : " Select all");
+  bar.append(allLabel);
+  if (!ids.length) return bar;
+
+  const typeSelect = document.createElement("select");
+  typeSelect.setAttribute("aria-label", "Set the event type of the selected moments");
+  typeSelect.append(new Option("Set type…", ""), ...eventTypes
+    .filter(([value]) => value && value !== "other")
+    .map(([value, label]) => new Option(label, value)));
+  typeSelect.addEventListener("change", () => {
+    if (!typeSelect.value) return;
+    for (const id of ids) updateTag(id, { eventType: typeSelect.value, customEventType: "" });
+    renderTags();
+    notify(`Set ${plural(ids.length, "moment")} to ${eventTypeName(typeSelect.value)}.`, "success");
+  });
+  bar.append(typeSelect);
+
+  const squad = teamPlayers(activeTeamId());
+  if (squad.length) {
+    const playerSelect = document.createElement("select");
+    playerSelect.setAttribute("aria-label", "Add a player to the selected moments");
+    playerSelect.append(new Option("Add player…", ""), ...squad.map((member) =>
+      new Option(member.number === null ? member.name : `${member.number} · ${member.name}`, member.id)));
+    playerSelect.addEventListener("change", () => {
+      const member = state.memberById.get(playerSelect.value);
+      if (!member) return;
+      for (const id of ids) {
+        const tag = state.tags.find((item) => item.id === id);
+        if (tag && !(tag.playerIds || []).includes(member.id)) updateTag(id, { playerIds: [...(tag.playerIds || []), member.id] });
+      }
+      renderTags();
+      notify(`Added ${memberLabel(member)} to ${plural(ids.length, "moment")}.`, "success");
+    });
+    bar.append(playerSelect);
+  }
+
+  const done = document.createElement("button");
+  done.type = "button";
+  done.className = "done-button";
+  done.textContent = "✓ Done";
+  done.addEventListener("click", () => {
+    let moved = 0;
+    for (const id of ids) {
+      const tag = state.tags.find((item) => item.id === id);
+      if (tag && isComplete(tag)) {
+        updateTag(id, { done: true });
+        moved++;
+      }
+    }
+    const skipped = ids.length - moved;
+    renderTags();
+    notify(`${plural(moved, "moment")} moved to Done.${skipped ? ` ${plural(skipped, "moment")} still ${skipped === 1 ? "needs" : "need"} a type.` : ""}`, moved ? "success" : "error");
+  });
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "delete-all";
+  remove.textContent = "Delete";
+  remove.addEventListener("click", () => {
+    deleteMoments(state.tags.filter((tag) => ids.includes(tag.id)), "the selection");
+  });
+  const clear = document.createElement("button");
+  clear.type = "button";
+  clear.className = "link-button";
+  clear.textContent = "Clear";
+  clear.addEventListener("click", () => {
+    state.bulkIds = new Set();
+    renderTags();
+  });
+  bar.append(done, remove, clear);
+  return bar;
+}
+
 function markOffsetSeconds() {
   const value = Number($("#markOffset").value);
   return markOffsetChoices.includes(value) ? value : 0;
 }
 
-async function markMoment() {
+// Marks a moment at the current time (minus the mark offset). With an event type (a quick-type key or
+// button) the moment is already complete, so it goes straight to Done; the "Last marked" bar then takes
+// shirt numbers for it.
+async function markMoment(eventType = "") {
   if (!state.playerReady || !state.player) return;
   try {
     const offset = markOffsetSeconds();
@@ -2350,7 +2629,7 @@ async function markMoment() {
     const tag = {
       id: crypto.randomUUID(),
       timestampSeconds,
-      eventType: "",
+      eventType,
       customEventType: "",
       playerIds: [],
       otherPlayers: "",
@@ -2358,9 +2637,18 @@ async function markMoment() {
       note: "",
       done: false,
     };
+    tag.done = isComplete(tag);
     state.tags = [...state.tags, tag].sort(byTime);
+    state.lastMarkedId = tag.id;
+    state.numberBuffer = "";
+    if ($("#pauseOnMark").checked) state.player.pause().catch(() => {});
     setDirty();
     renderTags();
+    if (tag.done) {
+      const squad = teamPlayers(activeTeamId()).length > 0;
+      notify(`${tagEventLabel(tag)} marked at ${formatTime(timestampSeconds)} and added to Done.${squad ? " Hold Shift and type a shirt number to add a player." : ""}`, "success");
+      return;
+    }
     const row = document.querySelector(`[data-tag-id="${tag.id}"]`);
     row?.classList.add("just-added");
     // In full screen only the list scrolls. Scroll it directly: scrollIntoView would also move the page.
@@ -2498,6 +2786,9 @@ async function openVideo(value, record = null) {
     tags: [],
   };
   state.isDirty = false;
+  state.lastMarkedId = null;
+  state.numberBuffer = "";
+  state.bulkIds = new Set();
   state.player = null;
   state.videoDuration = 0;
   setPlayerReady(false);
@@ -2664,6 +2955,9 @@ async function startNewVideo() {
   state.activeRecord = null;
   state.tags = [];
   state.isDirty = false;
+  state.lastMarkedId = null;
+  state.numberBuffer = "";
+  state.bulkIds = new Set();
   exitStage();
   setPlayerReady(false);
   $("#tagPanel").classList.remove("has-video");
@@ -3011,6 +3305,24 @@ $("#markOffset").addEventListener("change", () => {
   }
 });
 
+state.quickTypes = loadQuickTypes();
+renderQuickBar();
+renderQuickTypeChoices();
+try {
+  $("#pauseOnMark").checked = window.localStorage.getItem(pauseOnMarkStorageKey) === "true";
+} catch {
+  // Default: keep playing when marking.
+}
+$("#pauseOnMark").addEventListener("change", () => {
+  try {
+    window.localStorage.setItem(pauseOnMarkStorageKey, String($("#pauseOnMark").checked));
+  } catch {
+    // Remembering the choice is a convenience only.
+  }
+});
+$("#lastMarkedUndo").addEventListener("mousedown", (event) => event.preventDefault());
+$("#lastMarkedUndo").addEventListener("click", undoLastMark);
+
 $("#rewindButton").addEventListener("click", () => seekBy(-seekStepSeconds));
 $("#forwardButton").addEventListener("click", () => seekBy(seekStepSeconds));
 $("#playPauseButton").addEventListener("click", togglePlay);
@@ -3060,30 +3372,72 @@ window.addEventListener("keydown", (event) => {
     return;
   }
   if (state.role !== "admin" || state.activeTab !== "tag" || $("#passwordDialog").open) return;
-  // "+" needs Shift on most keyboards, so it is the one key allowed with Shift.
-  if (event.ctrlKey || event.metaKey || event.altKey || (event.shiftKey && event.key !== "+")) return;
   const target = event.target;
   if (target instanceof HTMLElement && (
     target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)
   )) return;
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+  // Shift + shirt number adds a player to the moment just marked: hold Shift, type the digits, let go
+  // of Shift. event.code is used because Shift turns 9 into "(" on most keyboards.
+  const digit = /^(?:Digit|Numpad)([0-9])$/.exec(event.code)?.[1];
+  if (event.shiftKey && digit !== undefined) {
+    if (!state.lastMarkedId) return;
+    event.preventDefault();
+    if (state.numberBuffer.length < 3) state.numberBuffer += digit;
+    state.shiftNumber = true;
+    renderLastMarked();
+    return;
+  }
+  // "+" needs Shift on most keyboards, so it is the one other key allowed with Shift.
+  if (event.shiftKey && event.key !== "+") return;
   const onButton = target instanceof HTMLElement && target.tagName === "BUTTON";
+  const quickIndex = quickKeys.indexOf(event.key.toLowerCase());
   const actions = {
-    Enter: () => markMoment(),
+    // Enter after a typed shirt number adds that player; otherwise it marks an untyped moment.
+    Enter: () => (state.numberBuffer ? assignShirtNumber() : markMoment()),
     " ": () => togglePlay(),
     ArrowLeft: () => seekBy(-seekStepSeconds),
     ArrowRight: () => seekBy(seekStepSeconds),
     "+": () => tagZoom.zoomIn(),
     "=": () => tagZoom.zoomIn(),
     "-": () => tagZoom.zoomOut(),
-    0: () => tagZoom.reset(),
+    Backspace: () => {
+      if (state.numberBuffer) {
+        state.numberBuffer = state.numberBuffer.slice(0, -1);
+        renderLastMarked();
+      } else {
+        undoLastMark();
+      }
+    },
+    Escape: () => {
+      state.numberBuffer = "";
+      renderLastMarked();
+    },
   };
-  const action = actions[event.key];
+  let action = actions[event.key];
+  if (!action && /^[0-9]$/.test(event.key) && state.lastMarkedId) {
+    action = () => {
+      if (state.numberBuffer.length < 3) state.numberBuffer += event.key;
+      renderLastMarked();
+    };
+  }
+  if (!action && quickIndex >= 0 && quickIndex < state.quickTypes.length && !event.shiftKey) {
+    if (event.repeat) return;
+    action = () => markMoment(state.quickTypes[quickIndex]);
+  }
   if (!action) return;
   // Enter and Space on a focused button should press that button, as usual.
   if (onButton && (event.key === "Enter" || event.key === " ")) return;
   if (event.repeat && (event.key === "Enter" || event.key === " ")) return;
   event.preventDefault();
   action();
+});
+
+// Letting go of Shift after Shift + shirt number adds that player.
+window.addEventListener("keyup", (event) => {
+  if (event.key !== "Shift" || !state.shiftNumber) return;
+  state.shiftNumber = false;
+  if (state.numberBuffer) assignShirtNumber();
 });
 
 if (!supabase) {

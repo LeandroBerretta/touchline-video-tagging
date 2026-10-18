@@ -13,6 +13,7 @@ done, mark it and pick the next together.
 | 4 | **Pitch location when tagging.** Tap a small pitch diagram to record where an event happened; show simple maps (e.g. shots). Mockup made; open questions: auto-flipping direction at Half-time, which events get a location, who sees the Map. | Shelved 2026-10-17 |
 | 5 | **Drawing on a paused frame.** Arrows, circles and freehand saved with a moment and shown when its clip plays. Cannot follow players or be burned into the Vimeo video. | Shelved 2026-10-17 |
 | 6 | **Skip dead time.** A one-click "watch only tagged moments" for a whole match (mostly possible today with Select all + Play selected). Built as "Tagged moments only" in Watch, with a running-time estimate. | Shipped 2026-10-17 |
+| 7 | **Faster tagging.** One key per event type (marks with its type straight into Done), shirt number + Enter adds a player, Backspace undoes the last mark, optional pause on mark, Done moves to the next To do, edit several To do moments at once, choose your own quick types; Shift + shirt number adds a player. | Shipped 2026-10-17 |
 
 ## Out of reach with Vimeo embeds
 

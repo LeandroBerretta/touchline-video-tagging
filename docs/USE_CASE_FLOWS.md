@@ -87,6 +87,15 @@ flowchart TD
 
 Notes:
 
+- Quick types: letter keys Q W E R T Y (up to U I O, in the order ticked; chosen per device under
+  Tagging options) and matching buttons mark a moment with that type in one
+  press; it is complete, so it goes straight to Done. Right after any mark,
+  Shift + shirt number (added when Shift is released) or number + Enter adds
+  that squad player, and Backspace undoes the mark
+  (shown in the "Last" bar). An option pauses the video on each mark.
+- Review pass: with the video paused, Done moves to the next To do moment and
+  seeks there. To do moments can be ticked and edited together (type, player,
+  Done, delete).
 - Keyboard: Enter marks, Space plays or pauses, ← and → jump 5 seconds. Keys
   only work while the page has focus, so playback has its own controls under
   the video; clicking inside the Vimeo picture hands the keyboard to Vimeo.

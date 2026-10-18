@@ -252,6 +252,29 @@ kbd { border: 1px solid #59704e; border-radius: 4px; padding: 2px 6px; color: #2
 .stats-player-name { font-weight: 700; overflow-wrap: anywhere; }
 .stats-unnamed .stats-player-name { color: var(--muted); font-style: italic; font-weight: 600; }
 .stats-player-detail { color: var(--muted); font-size: 13px; line-height: 1.45; }
+.quick-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.quick-key { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; border: 1px solid #3c5640; border-radius: 30px; padding: 0 12px 0 6px; color: var(--text); background: #a8f2771a; cursor: pointer; font-size: 13px; font-weight: 600; }
+.quick-key:hover:not(:disabled) { border-color: var(--green); background: #a8f27733; }
+.quick-key:disabled { opacity: .45; cursor: not-allowed; }
+.quick-key kbd { min-width: 22px; padding: 1px 5px; text-align: center; }
+.last-marked { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 10px; border: 1px solid #3c5640; border-radius: 8px; padding: 8px 12px; background: #a8f27712; font-size: 13px; }
+.last-marked-text { font-weight: 700; }
+.last-marked-number { border-radius: 5px; padding: 1px 8px; color: #1a2515; background: var(--green); font: 700 13px Consolas, monospace; }
+.last-marked-hint { color: var(--muted); }
+.last-marked .link-button { margin: 0 0 0 auto; font-size: 13px; }
+.tagging-options { margin-top: 10px; color: var(--muted); font-size: 13px; }
+.tagging-options > summary { cursor: pointer; font-weight: 700; }
+.tagging-options[open] { display: grid; gap: 8px; }
+.option-row { display: flex; align-items: center; gap: 8px; color: var(--text); cursor: pointer; }
+.option-row input, .quick-type-choice input, .bulk-pick, .bulk-all input { width: 18px; height: 18px; margin: 0; padding: 0; accent-color: var(--green); }
+.quick-type-choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 12px; }
+.quick-type-choice { display: flex; align-items: center; gap: 6px; color: var(--text); cursor: pointer; }
+.bulk-pick { margin-top: 6px; cursor: pointer; }
+.bulk-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+.bulk-bar select { padding: 7px 10px; font-size: 13px; }
+.bulk-bar .done-button { min-height: 34px; }
+.bulk-bar .link-button { margin: 0; font-size: 13px; }
+.bulk-all { display: flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; font-weight: 700; }
 .video-team-field { display: grid; gap: 8px; }
 .video-team-field label { margin-top: 4px; font-size: 13px; font-weight: 700; }
 .player-picker { grid-column: 1 / -1; display: grid; gap: 6px; }

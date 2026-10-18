@@ -172,7 +172,20 @@
                   </select>
                 </label>
               </div>
-              <p class="tag-shortcut">Mark now, add the details later. Keys: <kbd>Enter</kbd> mark, <kbd>Space</kbd> play/pause, <kbd>←</kbd> <kbd>→</kbd> 5 seconds. Keys stop working after you click inside the video itself, so use the controls under it.</p>
+              <div id="quickBar" class="quick-bar" role="group" aria-label="Mark a moment with its event type"></div>
+              <div id="lastMarked" class="last-marked" hidden>
+                <span id="lastMarkedText" class="last-marked-text" aria-live="polite"></span>
+                <span id="lastMarkedNumber" class="last-marked-number" hidden></span>
+                <span id="lastMarkedHint" class="last-marked-hint"></span>
+                <button id="lastMarkedUndo" class="link-button" type="button">Undo</button>
+              </div>
+              <p class="tag-shortcut">Keys: <kbd>Enter</kbd> mark · the letter on a button marks with that type · after marking, hold <kbd>Shift</kbd> and type a shirt number to add that player (or the number then <kbd>Enter</kbd>) · <kbd>Backspace</kbd> undoes the last mark · <kbd>Space</kbd> play/pause · <kbd>←</kbd> <kbd>→</kbd> 5 seconds. Keys stop working after you click inside the video itself, so use the controls under it.</p>
+              <details class="tagging-options">
+                <summary>Tagging options</summary>
+                <label class="option-row" for="pauseOnMark"><input id="pauseOnMark" type="checkbox"> Pause the video each time I mark a moment</label>
+                <p class="form-hint">Quick types: tick up to nine. They get the keys Q W E R T Y U I O in the order you tick them (new ones go last), and show as buttons above and on new moments. Remembered on this device.</p>
+                <div id="quickTypeChoices" class="quick-type-choices"></div>
+              </details>
               <div id="tagList" class="tag-list"></div>
               <p id="emptyTags" class="empty-state">No moments yet. Play the video and mark one to get started.</p>
               <div class="video-actions">
