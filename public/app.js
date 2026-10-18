@@ -1837,9 +1837,16 @@ async function openLinkedPlaylist() {
     notifyWatch("This playlist link doesn't work any more: the playlist was deleted, or its video isn't published.", "error");
     return;
   }
+  // The same link can arrive twice at once (sign-in and an address change); open it only once.
+  if (state.openingPlaylistId === id) return;
+  state.openingPlaylistId = id;
   state.linkedPlaylistId = id;
   setWatchView("events");
-  await selectWatchVideo(record.id);
+  try {
+    await selectWatchVideo(record.id);
+  } finally {
+    state.openingPlaylistId = "";
+  }
   if (state.selectedWatchId !== record.id) return;
   renderWatchEvents(record);
   document.querySelector(`[data-playlist-id="${id}"]`)?.scrollIntoView({ block: "nearest" });
@@ -3375,6 +3382,8 @@ async function saveVideo(mode = "progress") {
     }[mode], "success");
     try {
       await loadLibrary();
+      // The heading's status ("New, not saved yet") depends on the library list just refreshed.
+      renderVideoHeader();
     } catch (loadError) {
       notify(`${saved.title} was saved, but the library list could not refresh: ${friendlyError(loadError)}`, "error");
     }
@@ -3780,7 +3789,8 @@ for (const selector of ["#videoName", "#videoUrl"]) {
 
 try {
   const savedOffset = window.localStorage.getItem(markOffsetStorageKey);
-  if (markOffsetChoices.includes(Number(savedOffset))) $("#markOffset").value = savedOffset;
+  // Nothing saved yet reads as null, and Number(null) is 0: keep the page's default (3 s) in that case.
+  if (savedOffset !== null && markOffsetChoices.includes(Number(savedOffset))) $("#markOffset").value = savedOffset;
 } catch {
   // Storage can be unavailable (private mode); the default offset still works.
 }

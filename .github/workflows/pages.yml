@@ -25,10 +25,10 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - name: Install dependencies and validate TypeScript
+      - name: Install dependencies, type-check and run the tests
         run: |
           npm ci
-          npm run build
+          npm test
       - name: Assemble Pages site
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

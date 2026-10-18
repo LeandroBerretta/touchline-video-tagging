@@ -59,6 +59,12 @@ Open <http://localhost:3000>. Sign in with either Supabase account. The Vimeo
 player also needs internet access and the video's Vimeo privacy/embed settings
 must allow it to play on the page.
 
+## Tests
+
+Run `npm test` before pushing; a pre-push hook does it for you and cancels the
+push if anything fails, and the deploy runs it too. See `test/README.md` for
+how the suite works and what it covers.
+
 ## Deploy to GitHub Pages
 
 The workflow at `.github/workflows/pages.yml` publishes the static app whenever

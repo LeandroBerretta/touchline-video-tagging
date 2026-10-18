@@ -1,0 +1,9 @@
+#!/bin/sh
+# Runs the whole test suite before every push. A failing suite cancels the push.
+# (Installed automatically by `npm install`, which points git at this folder.)
+echo "Running the Touchline test suite before pushing..."
+if ! npm test; then
+  echo ""
+  echo "Tests failed, so the push was cancelled. Fix the failures and push again."
+  exit 1
+fi
