@@ -1094,11 +1094,46 @@ function selectedWatchTags() {
   return record ? watchEvents(record).filter((tag) => state.watchSelectedIds.has(tag.id)) : [];
 }
 
+// "Tagged moments only": every event of the match back to back, skipping the dead time in between.
+// Markers (Start of game, Half-time, End of game) are left out.
+function taggedMoments(record) {
+  return watchEvents(record).filter((tag) => !markerTypes.has(tag.eventType));
+}
+
+// How long a set of clips takes to watch: overlapping clips play straight through, so they count once.
+function playlistSeconds(tags, length) {
+  const spans = tags
+    .map((tag) => {
+      const start = Math.max(0, tag.timestampSeconds - watchLeadSeconds);
+      return [start, start + length];
+    })
+    .sort((first, second) => first[0] - second[0]);
+  let total = 0;
+  let current = null;
+  for (const [start, end] of spans) {
+    if (current && start <= current[1]) {
+      current[1] = Math.max(current[1], end);
+    } else {
+      if (current) total += current[1] - current[0];
+      current = [start, end];
+    }
+  }
+  if (current) total += current[1] - current[0];
+  return total;
+}
+
 function refreshWatchControls() {
   const ready = state.watchReady;
   const selected = selectedWatchTags();
   const record = currentWatchRecord();
   const total = record ? watchEvents(record).length : 0;
+  const moments = record ? taggedMoments(record) : [];
+  const minutes = Math.max(1, Math.round(playlistSeconds(moments, clipLengthSeconds()) / 60));
+  $("#watchMomentsButton").disabled = !ready || !moments.length;
+  $("#watchMomentsButton").textContent = moments.length ? `▶ Tagged moments only (about ${minutes} min)` : "▶ Tagged moments only";
+  $("#watchMomentsButton").title = moments.length
+    ? `Plays all ${plural(moments.length, "moment")} back to back, ${clipLengthSeconds()} seconds each, skipping the rest of the match`
+    : "This video has no tagged moments yet";
   $("#playSelectedButton").disabled = !ready || !selected.length;
   $("#playSelectedButton").textContent = selected.length ? `▶ Play selected (${plural(selected.length, "clip")})` : "▶ Play selected";
   $("#selectAllTypesButton").textContent = total && selected.length === total ? "Clear selection" : "Select all";
@@ -2939,6 +2974,11 @@ $("#clipLength").addEventListener("change", () => {
   } catch {
     // Remembering the choice is a convenience only.
   }
+  refreshWatchControls();
+});
+$("#watchMomentsButton").addEventListener("click", () => {
+  const record = currentWatchRecord();
+  if (record) startPlaylist(taggedMoments(record), "All tagged moments");
 });
 $("#watchWholeVideoButton").addEventListener("click", () => {
   if (!state.watchPlayer) return;

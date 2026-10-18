@@ -242,9 +242,14 @@ flowchart TD
   R -- "Stop, or move the video by hand" --> E
   E -- Open a group, click an event --> H[Play from 3 s before the moment] --> E
   E -- Watch whole video --> G[Seek to 0:00 and play] --> E
+  E -- Tagged moments only --> TM[Playlist of every tagged moment except markers, in match order] --> Q
 ```
 
 Notes:
+
+- "Tagged moments only" skips the dead time: it plays every event (not
+  Start of game, Half-time or End of game) back to back at the current clip
+  length, and its button shows the running time, counting overlapping clips once.
 
 - Groups follow the event-type list order (custom types last) and start folded.
 - Every event has its own tick box; a group's tick box selects all its events
