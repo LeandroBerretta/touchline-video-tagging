@@ -48,6 +48,7 @@ const defaultQuickTypes = ["throw_in", "kick_off", "corner", "shot_off_target", 
 const quickKeys = ["q", "w", "e", "r", "t", "y", "u", "i", "o"];
 const quickTypesStorageKey = "touchline.quickTypes";
 const pauseOnMarkStorageKey = "touchline.pauseOnMark";
+const tagViewStorageKey = "touchline.tagView";
 const markOffsetChoices = [0, 3, 5, 10];
 const markOffsetStorageKey = "touchline.markOffsetSeconds";
 const libraryHiddenStorageKey = "touchline.libraryHidden";
@@ -86,6 +87,8 @@ const state = {
   numberBuffer: "",
   shiftNumber: false,
   bulkIds: new Set(),
+  tagView: "match",
+  expandedTagId: "",
   changeCount: 0,
   dirtySince: null,
   autosaveTimer: null,
@@ -292,10 +295,16 @@ function isDone(tag) {
   return !!tag.done && isComplete(tag);
 }
 
+// A moment's event type is always a string. Moments saved by an earlier bug can hold something else
+// (the Mark moment click itself); treat those as untyped so they can be fixed instead of breaking pages.
+function cleanTag(tag) {
+  return typeof tag?.eventType === "string" || !tag ? tag : { ...tag, eventType: "" };
+}
+
 function normalizeTag(tag) {
   const normalized = {
     ...tag,
-    eventType: tag.eventType || "",
+    eventType: typeof tag.eventType === "string" ? tag.eventType : "",
     customEventType: tag.customEventType || "",
     playerNames: tag.playerNames || "",
     note: tag.note || "",
@@ -430,7 +439,7 @@ function mapVideoRow(row) {
     updatedAt: row.updated_at,
     publishedAt: row.published_at,
     teamId: row.team_id ?? null,
-    tags: row.tags,
+    tags: (row.tags || []).map(cleanTag),
   };
 }
 
@@ -475,6 +484,7 @@ async function autosave() {
     state.activeRecord = saved;
     state.records = [saved, ...state.records.filter((item) => item.id !== saved.id)];
     renderLibrary();
+    renderVideoHeader();
     if (state.changeCount === change) {
       state.isDirty = false;
       state.dirtySince = null;
@@ -806,7 +816,7 @@ async function loadLibrary() {
     updatedAt: record.updated_at,
     publishedAt: record.published_at,
     teamId: record.team_id ?? null,
-    tags: record.tags,
+    tags: (record.tags || []).map(cleanTag),
   }));
   await Promise.all([loadPlaylists(), loadTeams()]);
   renderTeamOptions();
@@ -1195,7 +1205,7 @@ function tagEventLabel(tag) {
   if (tag.eventType === "other") {
     return "Other";
   }
-  if (tag.eventType) {
+  if (tag.eventType && typeof tag.eventType === "string") {
     const match = eventTypes.find(([value]) => value === tag.eventType);
     return match?.[1] || tag.eventType.replaceAll("_", " ");
   }
@@ -2004,6 +2014,7 @@ function markDone(id) {
     return;
   }
   updateTag(id, { done: true });
+  if (state.expandedTagId === id) state.expandedTagId = "";
   renderTags();
   goToNextTodo(tag);
   notify(`Done: ${tagEventLabel(tag)} at ${formatTime(tag.timestampSeconds)}.`, "success", {
@@ -2045,8 +2056,9 @@ function renderTagRow(tag, done) {
   const timeColumn = document.createElement("div");
   timeColumn.className = "tag-time-col";
   timeColumn.append(seekButton, editTimeButton);
+  let pick = null;
   if (!done) {
-    const pick = document.createElement("input");
+    pick = document.createElement("input");
     pick.type = "checkbox";
     pick.className = "bulk-pick";
     pick.checked = state.bulkIds.has(tag.id);
@@ -2057,7 +2069,6 @@ function renderTagRow(tag, done) {
       renderTags();
       document.querySelector(`[data-tag-id="${tag.id}"] .bulk-pick`)?.focus();
     });
-    timeColumn.append(pick);
   }
 
   const details = document.createElement("div");
@@ -2228,6 +2239,7 @@ function renderTagRow(tag, done) {
       remove.addEventListener("click", () => {
         updateTag(tag.id, { playerIds: (currentTag().playerIds || []).filter((item) => item !== id) });
         renderPicker();
+        refreshRow();
         addPlayer.focus();
       });
       chip.append(remove);
@@ -2257,6 +2269,7 @@ function renderTagRow(tag, done) {
     }
     if (addPlayer.value) updateTag(tag.id, { playerIds: [...(currentTag().playerIds || []), addPlayer.value] });
     renderPicker();
+    refreshRow();
     addPlayer.focus();
   });
   playerNames.addEventListener("input", () => updateTag(tag.id, { otherPlayers: playerNames.value }));
@@ -2275,6 +2288,7 @@ function renderTagRow(tag, done) {
       playerNames.value = others.join(", ");
       renderPicker();
     }
+    refreshRow();
   });
   renderPicker();
 
@@ -2347,6 +2361,45 @@ function renderTagRow(tag, done) {
     refreshRow();
   }
 
+  // The one-line summary: always visible. Its main part opens and closes the editor below it.
+  const expanded = state.expandedTagId === tag.id;
+  const summary = document.createElement("div");
+  summary.className = "tag-summary";
+  const pickSlot = document.createElement("span");
+  pickSlot.className = "tag-summary-pick";
+  if (pick) pickSlot.append(pick);
+  const summaryTime = document.createElement("button");
+  summaryTime.type = "button";
+  summaryTime.className = "tag-time tag-summary-time";
+  summaryTime.textContent = time;
+  summaryTime.disabled = !state.playerReady;
+  summaryTime.setAttribute("aria-label", `Play from ${time}`);
+  summaryTime.addEventListener("click", () => {
+    state.player?.setCurrentTime(tag.timestampSeconds).catch((error) => {
+      notify(`Could not seek to this moment: ${error.message}`, "error");
+    });
+  });
+  const summaryMain = document.createElement("button");
+  summaryMain.type = "button";
+  summaryMain.className = "tag-summary-main";
+  summaryMain.setAttribute("aria-expanded", String(expanded));
+  const summaryLabel = document.createElement("span");
+  summaryLabel.className = "tag-summary-label";
+  const summaryPlayers = document.createElement("span");
+  summaryPlayers.className = "tag-summary-players";
+  const summaryMark = document.createElement("span");
+  summaryMark.className = "tag-summary-mark";
+  summaryMark.setAttribute("aria-hidden", "true");
+  summaryMain.append(summaryLabel, summaryPlayers, summaryMark);
+  summaryMain.addEventListener("click", () => toggleTagEditor(tag.id));
+  summary.append(pickSlot, summaryTime, summaryMain);
+
+  const editor = document.createElement("div");
+  editor.className = "tag-editor";
+  editor.hidden = !expanded;
+  row.classList.toggle("expanded", expanded);
+  row.classList.toggle("just-marked", tag.id === state.lastMarkedId);
+
   function refreshRow() {
     const current = state.tags.find((item) => item.id === tag.id);
     if (!current) return;
@@ -2357,12 +2410,29 @@ function renderTagRow(tag, done) {
     quickTypes.hidden = !!current.eventType;
     customWrap.hidden = current.eventType !== "other";
     if (!done) doneButton.disabled = !complete;
+    summaryLabel.textContent = complete ? tagEventLabel(current) : "Needs a type";
+    const { ids, others } = tagPlayers(current, activeTeamId());
+    const names = [...ids.map((id) => state.memberById.get(id)).filter(Boolean).map(memberLabel), ...others];
+    summaryPlayers.textContent = names.length ? names.join(", ") : "";
+    summaryPlayers.hidden = !names.length;
+    summaryMark.textContent = isDone(current) ? "✓" : (expanded ? "▾" : "▸");
+    summaryMain.setAttribute("aria-label", `${time} ${summaryLabel.textContent}${names.length ? `, ${names.join(", ")}` : ""}. ${expanded ? "Close" : "Edit"} this moment`);
   }
 
   details.append(timeEditor, status, quickTypes, eventType, customWrap, picker, note, rowActions);
-  row.append(timeColumn, details, deleteButton);
+  editor.append(timeColumn, details, deleteButton);
+  row.append(summary, editor);
   refreshRow();
   return row;
+}
+
+// Only one moment is open for editing at a time.
+function toggleTagEditor(id) {
+  state.expandedTagId = state.expandedTagId === id ? "" : id;
+  renderTags();
+  const row = document.querySelector(`[data-tag-id="${id}"]`);
+  if (state.expandedTagId === id) (row?.querySelector(".event-type") || row?.querySelector(".tag-summary-main"))?.focus();
+  else row?.querySelector(".tag-summary-main")?.focus();
 }
 
 function groupHeading(tagName, text, count) {
@@ -2448,6 +2518,17 @@ function renderTags() {
   const sections = [];
   // Only moments still in To do can be selected for editing several at once.
   state.bulkIds = new Set(todo.filter((tag) => state.bulkIds.has(tag.id)).map((tag) => tag.id));
+  renderTagViewSwitch();
+
+  if (state.tags.length && state.tagView === "match") {
+    $("#tagList").replaceChildren(matchOrderSection(todo));
+    renderPlayerSuggestions();
+    renderLastMarked();
+    renderTimeline();
+    renderVideoHeader();
+    refreshActions();
+    return;
+  }
 
   if (state.tags.length) {
     const todoSection = document.createElement("section");
@@ -2505,7 +2586,124 @@ function renderTags() {
   $("#tagList").replaceChildren(...sections);
   renderPlayerSuggestions();
   renderLastMarked();
+  renderTimeline();
+  renderVideoHeader();
   refreshActions();
+}
+
+// ---- Tag layout: Match order view, timeline, video header, keys help ----
+
+function renderTagViewSwitch() {
+  $("#tagViewMatch").setAttribute("aria-pressed", String(state.tagView === "match"));
+  $("#tagViewGroups").setAttribute("aria-pressed", String(state.tagView !== "match"));
+}
+
+function setTagView(view) {
+  state.tagView = view;
+  try {
+    window.localStorage.setItem(tagViewStorageKey, view);
+  } catch {
+    // Remembering the view is a convenience only.
+  }
+  renderTags();
+}
+
+// Every moment in time order, split into halves at the Half-time moment when there is one.
+function matchOrderSection(todo) {
+  const section = document.createElement("section");
+  section.className = "moment-group moment-group-match";
+  if (todo.length > 1) {
+    try {
+      section.append(bulkBar(todo));
+    } catch (error) {
+      console.error("Could not draw the edit-several bar", error);
+    }
+  }
+  const sorted = [...state.tags].sort(byTime);
+  const halfTime = sorted.find((tag) => tag.eventType === "half_time")?.timestampSeconds ?? null;
+  const list = document.createElement("ol");
+  list.className = "moment-rows";
+  const divider = (text) => {
+    const item = document.createElement("li");
+    item.className = "match-divider";
+    item.textContent = text;
+    return item;
+  };
+  if (halfTime !== null) list.append(divider("1st half"));
+  let secondHalf = false;
+  for (const tag of sorted) {
+    if (halfTime !== null && !secondHalf && tag.timestampSeconds > halfTime) {
+      list.append(divider("2nd half"));
+      secondHalf = true;
+    }
+    list.append(safeTagRow(tag, isDone(tag)));
+  }
+  section.append(list);
+  return section;
+}
+
+function timelinePercent(seconds) {
+  const duration = state.videoDuration || 1;
+  return `${Math.min(100, Math.max(0, (seconds / duration) * 100))}%`;
+}
+
+// Ticks under the video for every moment (markers aside): green when done, amber when it still needs a
+// type, white and taller for goals. Click a tick, or anywhere on the bar, to jump there.
+function renderTimeline() {
+  const bar = $("#timelineBar");
+  const show = !!state.activeRecord && state.videoDuration > 0;
+  $("#timeline").hidden = !show;
+  bar.querySelectorAll(".timeline-tick, .timeline-half").forEach((element) => element.remove());
+  if (!show) return;
+  const halfTime = state.tags.find((tag) => tag.eventType === "half_time")?.timestampSeconds ?? null;
+  $("#timelineHalf").textContent = halfTime === null ? "" : `Half-time ${formatTime(halfTime)}`;
+  if (halfTime !== null) {
+    const line = document.createElement("div");
+    line.className = "timeline-half";
+    line.style.left = timelinePercent(halfTime);
+    bar.append(line);
+  }
+  for (const tag of [...state.tags].sort(byTime)) {
+    if (markerTypes.has(tag.eventType)) continue;
+    const tick = document.createElement("button");
+    tick.type = "button";
+    tick.className = "timeline-tick";
+    if (!isComplete(tag)) tick.classList.add("needs-type");
+    else if (tag.eventType === "goal") tick.classList.add("goal");
+    tick.style.left = timelinePercent(tag.timestampSeconds);
+    const label = `${formatTime(tag.timestampSeconds)} ${isComplete(tag) ? tagEventLabel(tag) : "needs a type"}`;
+    tick.title = label;
+    tick.setAttribute("aria-label", `Jump to ${label}`);
+    tick.addEventListener("mousedown", (event) => event.preventDefault());
+    tick.addEventListener("click", (event) => {
+      event.stopPropagation();
+      state.player?.setCurrentTime(tag.timestampSeconds).catch(() => {});
+    });
+    bar.append(tick);
+  }
+}
+
+// Once a video is open, its form folds into a title; Edit details opens it again.
+function renderVideoHeader() {
+  const record = state.activeRecord;
+  $("#videoHeader").hidden = !record;
+  if (!record) {
+    $("#tagPanel").classList.remove("editing-details");
+    return;
+  }
+  $("#videoHeaderTitle").textContent = $("#videoName").value.trim() || "Untitled video";
+  const team = state.teams.find((item) => item.id === activeTeamId())?.name || "";
+  const saved = state.records.some((item) => item.id === record.id);
+  const status = !saved ? "New, not saved yet" : record.status === "published" ? "Published" : "In progress";
+  $("#videoHeaderMeta").textContent = [team, status].filter(Boolean).join(" · ").toUpperCase();
+  const editing = $("#tagPanel").classList.contains("editing-details");
+  $("#editDetailsButton").textContent = editing ? "Done" : "Edit details";
+  $("#editDetailsButton").setAttribute("aria-expanded", String(editing));
+}
+
+function setKeysHelp(open) {
+  $("#keysHelp").hidden = !open;
+  $("#keysHelpButton").setAttribute("aria-expanded", String(open));
 }
 
 function setPlayerReady(ready) {
@@ -2645,6 +2843,8 @@ function goToNextTodo(afterTag) {
     .then((paused) => {
       if (!paused) return;
       state.player.setCurrentTime(Math.max(0, next.timestampSeconds - watchLeadSeconds)).catch(() => {});
+      state.expandedTagId = next.id;
+      renderTags();
       document.querySelector(`[data-tag-id="${next.id}"] .event-type`)?.focus();
     })
     .catch(() => {});
@@ -2746,6 +2946,7 @@ function markOffsetSeconds() {
 // button) the moment is already complete, so it goes straight to Done; the "Last marked" bar then takes
 // shirt numbers for it.
 async function markMoment(eventType = "") {
+  if (typeof eventType !== "string") eventType = "";
   if (!state.playerReady || !state.player) return;
   try {
     const offset = markOffsetSeconds();
@@ -2824,6 +3025,7 @@ function setPlayingLabel(playing) {
 }
 
 function updatePlayerClock(seconds) {
+  if (state.videoDuration) $("#timelineNow").style.left = timelinePercent(seconds);
   $("#playerClock").textContent = state.videoDuration
     ? `${formatTime(seconds)} / ${formatTime(state.videoDuration)}`
     : formatTime(seconds);
@@ -2950,6 +3152,7 @@ async function openVideo(value, record = null) {
     await state.player.ready();
     state.videoDuration = await state.player.getDuration().catch(() => 0);
     updatePlayerClock(0);
+    renderTimeline();
     setPlayerReady(true);
     notify(record
       ? record.status === "published"
@@ -3034,7 +3237,7 @@ async function saveVideo(mode = "progress") {
       updatedAt: data.updated_at,
       publishedAt: data.published_at,
       teamId: data.team_id ?? null,
-      tags: data.tags,
+      tags: (data.tags || []).map(cleanTag),
     };
     state.activeRecord = saved;
     state.isDirty = false;
@@ -3318,7 +3521,8 @@ $("#videoForm").addEventListener("submit", (event) => {
   openVideo($("#videoUrl").value.trim());
 });
 
-$("#markMomentButton").addEventListener("click", markMoment);
+// Call with no argument: passing markMoment directly would hand it the click event as an event type.
+$("#markMomentButton").addEventListener("click", () => markMoment());
 $("#saveVideoButton").addEventListener("click", () => saveVideo("progress"));
 $("#publishVideoButton").addEventListener("click", () => saveVideo("publish"));
 $("#unpublishVideoButton").addEventListener("click", () => saveVideo("unpublish"));
@@ -3450,6 +3654,34 @@ $("#pauseOnMark").addEventListener("change", () => {
     // Remembering the choice is a convenience only.
   }
 });
+try {
+  const savedView = window.localStorage.getItem(tagViewStorageKey);
+  if (savedView === "match" || savedView === "groups") state.tagView = savedView;
+} catch {
+  // Default: Match order.
+}
+$("#tagViewMatch").addEventListener("click", () => setTagView("match"));
+$("#tagViewGroups").addEventListener("click", () => setTagView("groups"));
+$("#keysHelpButton").addEventListener("mousedown", (event) => event.preventDefault());
+$("#keysHelpButton").addEventListener("click", () => setKeysHelp($("#keysHelp").hidden));
+document.addEventListener("click", (event) => {
+  if ($("#keysHelp").hidden) return;
+  if (event.target instanceof Node && ($("#keysHelp").contains(event.target) || $("#keysHelpButton").contains(event.target))) return;
+  setKeysHelp(false);
+});
+$("#editDetailsButton").addEventListener("click", () => {
+  $("#tagPanel").classList.toggle("editing-details");
+  renderVideoHeader();
+  if ($("#tagPanel").classList.contains("editing-details")) $("#videoName").focus();
+});
+$("#videoName").addEventListener("input", () => renderVideoHeader());
+$("#timelineBar").addEventListener("mousedown", (event) => event.preventDefault());
+$("#timelineBar").addEventListener("click", (event) => {
+  if (!state.player || !state.videoDuration) return;
+  const box = $("#timelineBar").getBoundingClientRect();
+  const seconds = ((event.clientX - box.left) / box.width) * state.videoDuration;
+  state.player.setCurrentTime(Math.max(0, Math.min(state.videoDuration, seconds))).catch(() => {});
+});
 $("#lastMarkedUndo").addEventListener("mousedown", (event) => event.preventDefault());
 $("#lastMarkedUndo").addEventListener("click", undoLastMark);
 
@@ -3541,6 +3773,7 @@ window.addEventListener("keydown", (event) => {
     },
     Escape: () => {
       state.numberBuffer = "";
+      setKeysHelp(false);
       renderLastMarked();
     },
   };

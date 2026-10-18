@@ -112,6 +112,16 @@ Notes:
 - Clicking a moment's timestamp plays the video from that point.
 - Player-name suggestions come from names already used in the library.
 
+## Tag layout
+
+Once a video is open, its form folds into a heading (team, status, name) with
+Edit details. A timeline under the video shows every moment (markers aside):
+green done, amber needs a type, white taller for goals, a line at Half-time;
+clicking a tick or the bar seeks there. Moments show in **Match order** by
+default (time order, split at Half-time) or **To do & Done**; the choice is
+remembered per device. Each moment is a one-line summary that opens into the
+full editor when clicked (one at a time). Keyboard help sits behind Keys ?.
+
 ## Moment lifecycle
 
 Moments are split into a **To do** list (match order) and a **Done** list,

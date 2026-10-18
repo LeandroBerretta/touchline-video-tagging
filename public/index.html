@@ -113,6 +113,13 @@
               <div class="column-tools">
                 <button id="toggleLibraryButton" class="link-button" type="button" aria-controls="libraryCard" aria-expanded="true">Hide library</button>
               </div>
+              <div id="videoHeader" class="video-header" hidden>
+                <div class="video-header-text">
+                  <p id="videoHeaderMeta" class="eyebrow"></p>
+                  <h2 id="videoHeaderTitle"></h2>
+                </div>
+                <button id="editDetailsButton" class="button button-outline" type="button" aria-expanded="false" aria-controls="videoForm">Edit details</button>
+              </div>
               <form id="videoForm" class="video-form">
                 <div id="videoTeamField" class="video-team-field" hidden>
                   <label for="videoTeam">Team</label>
@@ -146,6 +153,20 @@
                   </span>
                   <button id="tagFullscreenButton" class="player-button" type="button" title="Video and moments together on the whole screen" disabled>Full screen</button>
                 </div>
+                <div id="timeline" class="timeline" hidden>
+                  <div class="timeline-head">
+                    <span>Moments on the match timeline · click to jump there</span>
+                    <span id="timelineHalf"></span>
+                  </div>
+                  <div id="timelineBar" class="timeline-bar" role="group" aria-label="Moments on the match timeline">
+                    <div id="timelineNow" class="timeline-now" aria-hidden="true"></div>
+                  </div>
+                  <div class="timeline-key" aria-hidden="true">
+                    <span class="timeline-key-done">done</span>
+                    <span class="timeline-key-needs">needs a type</span>
+                    <span class="timeline-key-goal">goal</span>
+                  </div>
+                </div>
                 <div id="keysPaused" class="keys-paused" role="status" hidden>
                   <span><strong>Keys paused.</strong> The video has the keyboard, so Enter, the letter keys and Space won't work. Click anywhere outside the video to use them again.</span>
                   <button id="keysPausedButton" class="player-button" type="button">Use keys again</button>
@@ -175,6 +196,21 @@
                     <option value="10">10 seconds earlier</option>
                   </select>
                 </label>
+                <button id="keysHelpButton" class="keys-help-button" type="button" aria-expanded="false" aria-controls="keysHelp">Keys ?</button>
+              </div>
+              <div id="keysHelp" class="keys-help" hidden>
+                <p class="keys-help-title">Keys while tagging</p>
+                <dl class="keys-help-list">
+                  <dt><kbd>Enter</kbd></dt><dd>Mark a moment</dd>
+                  <dt>Letter on a quick button</dt><dd>Mark with that type</dd>
+                  <dt><kbd>Shift</kbd> + number</dt><dd>Add that shirt number to the last mark</dd>
+                  <dt><kbd>Backspace</kbd></dt><dd>Undo the last mark</dd>
+                  <dt><kbd>Space</kbd></dt><dd>Play or pause</dd>
+                  <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Back or forward 5 seconds</dd>
+                  <dt><kbd>+</kbd> <kbd>−</kbd></dt><dd>Zoom in or out</dd>
+                  <dt><kbd>Esc</kbd></dt><dd>Close this help</dd>
+                </dl>
+                <p class="form-hint">Keys pause after you click inside the video picture. Click anywhere outside it to get them back.</p>
               </div>
               <div id="quickBar" class="quick-bar" role="group" aria-label="Mark a moment with its event type"></div>
               <div id="lastMarked" class="last-marked" hidden>
@@ -183,13 +219,16 @@
                 <span id="lastMarkedHint" class="last-marked-hint"></span>
                 <button id="lastMarkedUndo" class="link-button" type="button">Undo</button>
               </div>
-              <p class="tag-shortcut">Keys: <kbd>Enter</kbd> mark · the letter on a button marks with that type · after marking, hold <kbd>Shift</kbd> and type a shirt number to add that player (or the number then <kbd>Enter</kbd>) · <kbd>Backspace</kbd> undoes the last mark · <kbd>Space</kbd> play/pause · <kbd>←</kbd> <kbd>→</kbd> 5 seconds. Keys stop working after you click inside the video itself, so use the controls under it.</p>
               <details class="tagging-options">
                 <summary>Tagging options</summary>
                 <label class="option-row" for="pauseOnMark"><input id="pauseOnMark" type="checkbox"> Pause the video each time I mark a moment</label>
                 <p class="form-hint">Quick types: tick up to nine. They get the keys Q W E R T Y U I O in the order you tick them (new ones go last), and show as buttons above and on new moments. Remembered on this device.</p>
                 <div id="quickTypeChoices" class="quick-type-choices"></div>
               </details>
+              <div class="tag-view-switch" role="group" aria-label="Show moments">
+                <button id="tagViewMatch" class="view-switch-button" type="button" aria-pressed="true">Match order</button>
+                <button id="tagViewGroups" class="view-switch-button" type="button" aria-pressed="false">To do &amp; Done</button>
+              </div>
               <div id="tagList" class="tag-list"></div>
               <p id="emptyTags" class="empty-state">No moments yet. Play the video and mark one to get started.</p>
               <div class="video-actions">

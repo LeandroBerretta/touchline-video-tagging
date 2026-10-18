@@ -15,7 +15,7 @@ done, mark it and pick the next together.
 | 6 | **Skip dead time.** A one-click "watch only tagged moments" for a whole match (mostly possible today with Select all + Play selected). Built as "Tagged moments only" in Watch, with a running-time estimate. | Shipped 2026-10-17 |
 | 7 | **Faster tagging.** One key per event type (marks with its type straight into Done), shirt number + Enter adds a player, Backspace undoes the last mark, optional pause on mark, Done moves to the next To do, edit several To do moments at once, choose your own quick types; Shift + shirt number adds a player. | Shipped 2026-10-17 |
 | 8 | **Usability A: protect work.** Autosave In progress videos; a banner when the video has taken the keyboard. | Shipped 2026-10-17 |
-| 9 | **Usability B: Tag layout.** Keys behind a ? button, compact moment rows with a Match order view, collapsed video form, timeline markers under the video. | Planned |
+| 9 | **Usability B: Tag layout.** Keys behind a ? button, compact moment rows with a Match order view, collapsed video form, timeline markers under the video. Match order is the default view. | Shipped 2026-10-17 |
 | 10 | **Usability C: Watch.** Video list instead of a dropdown, simpler play options for viewers, clip length in the playlist bar, pinned playlist bar, phone layout. | Planned |
 | 11 | **Usability D: Library.** Search and team filter. | Planned |
 
