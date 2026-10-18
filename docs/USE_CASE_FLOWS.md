@@ -9,7 +9,7 @@ the rules the UI enforces at each step.
 | Actor | Use cases |
 | --- | --- |
 | Anyone with an account | UC1 Sign in, UC8 Sign out, UC9 Reset a forgotten password |
-| Admin | UC2 Tag a video, UC3 Edit or delete a moment, UC4 Save and publish, UC5 Reopen a saved video, UC6 Remove a video, UC7 Watch (published only) |
+| Admin | UC2 Tag a video, UC10 Tag a match live, UC3 Edit or delete a moment, UC4 Save and publish, UC5 Reopen a saved video, UC6 Remove a video, UC7 Watch (published only) |
 | Viewer | UC7 Watch a published video |
 | Supabase | Authenticates users, returns the role, stores videos, enforces row-level security |
 | Vimeo | Hosts and plays the video inside an embedded player |
@@ -28,8 +28,9 @@ flowchart LR
     UC7[UC7 Watch a published video]
     UC8[UC8 Sign out]
     UC9[UC9 Reset a forgotten password]
+    UC10[UC10 Tag a match live]
   end
-  admin --- UC1 & UC2 & UC3 & UC4 & UC5 & UC6 & UC7 & UC8 & UC9
+  admin --- UC1 & UC2 & UC3 & UC4 & UC5 & UC6 & UC7 & UC8 & UC9 & UC10
   viewer --- UC1 & UC7 & UC8 & UC9
 ```
 
@@ -360,6 +361,60 @@ flowchart TD
   F --> G[Moment: Add player… picks from squad]
   G --> H[Saved as player ids + names]
   H --> I[Watch Stats by player, with shirt numbers]
+```
+
+## UC10 Tag a match live (admin)
+
+Live mode is for tagging on the sideline, usually on a phone, before any video
+exists. Library → **● Live match** → match name and team → **Start match** on
+the kick-off whistle. The camera can start at any time.
+
+- Each tap on a type button saves a moment at the phone's current time
+  (`liveAt`, plus `liveHalf` 1 or 2). Its `timestampSeconds` is time since
+  kick-off until the video is lined up.
+- Shirt-number buttons toggle players on the **last** event only. Tapping the
+  next type moves on; the previous event keeps whatever players it had.
+- **Moment** saves an untyped moment. **More types…** saves the moment first,
+  then opens a searchable list (or "Use …" with your own name for it);
+  **Later** leaves it untyped. **Change** and **Undo** act on the last event.
+- **Half-time** adds a Half-time marker and stops the clock; **Start 2nd half**
+  adds a Kick-off moment marked as the second-half anchor; the clock carries on
+  from the first half's length. **End match** adds End of game.
+- The match is kept in this browser (`touchline.liveMatch`) first and sent to
+  the library a moment later. Without signal it says how many changes are
+  waiting and retries; a reload mid-match goes straight back to it. Later sends
+  only update name, team and moments, never the Vimeo link.
+- The screen is kept awake while a match runs, where the browser allows it.
+
+After the game the match is in the library under **Waiting for video** (no
+Vimeo link). Opening it fills in the video form; paste the link and press
+**Attach video**. The video opens with the live moments, the link autosaves,
+and the **Line up the live moments** card opens under the video:
+
+| Method | Video time of a live moment |
+| --- | --- |
+| Find kick-off | kick-off time in the video + (moment − kick-off) |
+| Kick-off + second-half kick-off | first half as above; second half from the second-half kick-off |
+| Clock shown on the video | video time + (moment's time of day − time shown on screen at that video time) |
+
+A nudge of whole seconds applies to all moments. The live times are kept, so
+lining up can be redone at any time. Then the match is tagged, reviewed and
+published as in UC2–UC4.
+
+```mermaid
+flowchart TD
+  A[Library: Live match] --> B[Name + team]
+  B --> C[Start match on kick-off]
+  C --> D[Tap types, add shirt numbers]
+  D -->|no signal| E[Kept on the phone, sent later]
+  E --> D
+  D --> F[Half-time / Start 2nd half]
+  F --> D
+  D --> G[End match]
+  G --> H[Library: Waiting for video]
+  H --> I[Paste Vimeo link, Attach video]
+  I --> J[Line up: kick-off, both kick-offs, or on-screen clock + nudge]
+  J --> K[In progress: review, add players, publish]
 ```
 
 ## UC8 Sign out

@@ -18,9 +18,11 @@ done, mark it and pick the next together.
 | 9 | **Usability B: Tag layout.** Keys behind a ? button, compact moment rows with a Match order view, collapsed video form, timeline markers under the video. Match order is the default view. | Shipped 2026-10-17 |
 | 10 | **Usability C: Watch.** Video list instead of a dropdown, simpler play options for viewers, clip length in the playlist bar, pinned playlist bar, phone layout. Built as video cards with a team filter, a Choose clips mode, a shared clip-length row and a sticky / bottom-pinned playlist bar, plus a match timeline under the Watch video. | Shipped 2026-10-17 |
 | 11 | **Usability D: Library.** Search and team filter. | Shipped 2026-10-17 |
+| 12 | **Live mode.** Tag on the sideline from a phone against the match clock (quick types, More types search, optional shirt numbers, Undo / Change, Half-time and End match); works without signal and sends when back online. After upload, the match waits under Waiting for video; paste the Vimeo link and line the moments up by kick-off, by both kick-offs, or by the clock shown on screen, with a nudge. Not built yet: a prompt when adding a video asking whether it belongs to a live match. | Built 2026-10-17, first test at a live game 2026-10-18 |
 
 ## Out of reach with Vimeo embeds
 
 These need the raw video file or camera hardware rather than a Vimeo player:
-AI auto-tagging, multiple camera angles, live capture, playback faster than 2×,
+AI auto-tagging, multiple camera angles, live video inside Touchline (Live
+mode tags against the match clock instead), playback faster than 2×,
 and drawings that track players automatically.

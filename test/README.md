@@ -54,6 +54,7 @@ was scheduled (`state.autosaveTimer`) and then runs it with
 | `teams.test.js` | Teams and squads: members, numbers, remove/restore, edits, delete rules, viewer limits |
 | `watch.test.js` | UC7: video cards, groups, back-to-back clips, Choose clips and its type/player filters, Tagged moments only, clip length, timeline, stats |
 | `playlists.test.js` | Saved playlists: save, play, copy link, open from a link, delete, missing table |
+| `live.test.js` | UC10 Live mode: start, quick types and shirt numbers, More types, no signal, half-time and end, reload, Waiting for video, attach, line up (kick-off, both halves, on-screen clock, nudge) |
 | `static.test.js` | Page/code consistency, database access rules, no secrets or squad data committed, workflow and docs |
 
 ## Adding a test

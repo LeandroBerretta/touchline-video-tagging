@@ -18,6 +18,8 @@ const testTimings = {
   autosaveDelayMs: 3600000,
   autosaveMaxWaitMs: 7200000,
   autosaveRetryMs: 3600000,
+  liveSyncDelayMs: 3600000,
+  liveRetryMs: 3600000,
 };
 
 function prepareSource(source) {

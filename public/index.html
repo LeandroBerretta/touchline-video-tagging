@@ -90,8 +90,20 @@
                 <h2 id="libraryHeading">Your tagging library</h2>
                 <p class="library-note">Saved securely in the Touchline cloud library. Publishing moves an entry to the Published list; it does not publish it on Vimeo.</p>
               </div>
-              <button id="newVideoButton" class="button button-outline" type="button">＋ New video</button>
+              <div class="library-heading-actions">
+                <button id="newVideoButton" class="button button-outline" type="button">＋ New video</button>
+                <button id="liveMatchButton" class="button button-outline live-match-button" type="button">● Live match</button>
+              </div>
             </div>
+            <div id="liveResume" class="live-resume" hidden>
+              <span id="liveResumeText"></span>
+              <button id="liveResumeButton" class="button button-primary" type="button">Back to the match</button>
+            </div>
+            <section id="waitingSection" class="waiting-section" aria-labelledby="waitingHeading" hidden>
+              <h3 id="waitingHeading">Waiting for video <span id="waitingCount" class="count-bubble">0</span></h3>
+              <p class="form-hint">Matches tagged live. Open one and paste its Vimeo link once the video is uploaded.</p>
+              <div id="waitingList" class="saved-video-list"></div>
+            </section>
             <div class="library-filters">
               <input id="librarySearch" type="search" placeholder="Search videos" aria-label="Search videos by name" autocomplete="off">
               <select id="libraryTeamFilter" aria-label="Show videos for one team" hidden>
@@ -173,6 +185,40 @@
                     <span class="timeline-key-goal">goal</span>
                   </div>
                 </div>
+                <details id="liveAlign" class="live-align" hidden>
+                  <summary>Line up the live moments with this video</summary>
+                  <p class="form-hint">These moments were tagged live, timed from kick-off. Show Touchline where kick-off is in this video and every moment moves with it. You can do this again any time.</p>
+                  <div class="align-methods" role="radiogroup" aria-label="How to line up">
+                    <label class="align-option"><input type="radio" name="alignMethod" value="kickoff" checked> <span><strong>Find kick-off in the video</strong>Play to the kick-off whistle, pause, then press Use the paused time.</span></label>
+                    <label class="align-option"><input id="alignHalvesOption" type="radio" name="alignMethod" value="halves"> <span><strong>Kick-off + second-half kick-off</strong><span id="alignHalvesNote">Most accurate. Fixes a late restart or a camera paused at half-time.</span></span></label>
+                    <label class="align-option"><input type="radio" name="alignMethod" value="clock"> <span><strong>Type the clock shown on the video</strong>If the camera prints the time of day on the picture, pause anywhere and type what it shows.</span></label>
+                  </div>
+                  <div class="align-fields" data-methods="kickoff halves">
+                    <label for="alignKickoff">Kick-off is at</label>
+                    <input id="alignKickoff" type="text" inputmode="numeric" placeholder="mm:ss" autocomplete="off">
+                    <button id="alignKickoffUse" class="player-button" type="button">Use the paused time</button>
+                  </div>
+                  <div class="align-fields" data-methods="halves" hidden>
+                    <label for="alignSecond">Second-half kick-off is at</label>
+                    <input id="alignSecond" type="text" inputmode="numeric" placeholder="mm:ss" autocomplete="off">
+                    <button id="alignSecondUse" class="player-button" type="button">Use the paused time</button>
+                  </div>
+                  <div class="align-fields" data-methods="clock" hidden>
+                    <label for="alignClockVideo">At video time</label>
+                    <input id="alignClockVideo" type="text" inputmode="numeric" placeholder="mm:ss" autocomplete="off">
+                    <button id="alignClockUse" class="player-button" type="button">Use the paused time</button>
+                    <label for="alignClockShown">the clock on screen shows</label>
+                    <input id="alignClockShown" type="text" placeholder="e.g. 14:15:09" autocomplete="off">
+                  </div>
+                  <div class="align-nudge">
+                    <span>Nudge all moments <span class="form-hint">(if you tapped a little late)</span></span>
+                    <button id="alignNudgeDown" class="player-button" type="button" aria-label="One second earlier">−1 s</button>
+                    <span id="alignNudge" class="align-nudge-value">0 s</span>
+                    <button id="alignNudgeUp" class="player-button" type="button" aria-label="One second later">+1 s</button>
+                  </div>
+                  <p id="alignPreview" class="align-preview" aria-live="polite"></p>
+                  <button id="alignApplyButton" class="button button-primary" type="button">Apply</button>
+                </details>
                 <div id="keysPaused" class="keys-paused" role="status" hidden>
                   <span><strong>Keys paused.</strong> The video has the keyboard, so Enter, the letter keys and Space won't work. Click anywhere outside the video to use them again.</span>
                   <button id="keysPausedButton" class="player-button" type="button">Use keys again</button>
@@ -247,6 +293,77 @@
           </section>
         </div>
       </section>
+
+      <section id="livePanel" class="tab-panel live-panel" aria-label="Live match" hidden>
+        <div class="live-top">
+          <button id="liveCloseButton" class="link-button" type="button">‹ Library</button>
+          <span id="liveBadge" class="live-badge">LIVE MODE</span>
+        </div>
+        <div id="liveNotice" class="notice" role="status" aria-live="polite"></div>
+
+        <form id="liveSetup" class="live-setup">
+          <p class="eyebrow">LIVE MATCH</p>
+          <h1>Tag the game as it happens</h1>
+          <label for="liveName">Match name</label>
+          <input id="liveName" type="text" maxlength="200" required placeholder="e.g. VAFC vs Saanich — October 18">
+          <div id="liveTeamField" class="live-team-field" hidden>
+            <label for="liveTeam">Team</label>
+            <select id="liveTeam"></select>
+          </div>
+          <ol class="live-steps">
+            <li>Start the camera whenever you like. It doesn't need to match.</li>
+            <li>Press <strong>Start match</strong> on the kick-off whistle.</li>
+            <li>After the game, upload the video and paste its link in the library. Touchline lines everything up.</li>
+          </ol>
+          <button id="liveStartButton" class="live-start" type="submit">▶ Start match</button>
+          <p class="form-hint">Tap on the kick-off whistle. Off by a few seconds is fine: you can nudge it later.</p>
+        </form>
+
+        <div id="liveRun" class="live-run" hidden>
+          <p id="liveTitle" class="live-title"></p>
+          <div class="live-clock-box">
+            <span id="liveClock" class="live-clock">00:00</span>
+            <span id="livePhase" class="live-phase"></span>
+          </div>
+          <p class="live-label">1 · WHAT HAPPENED</p>
+          <div id="liveTypes" class="live-types" role="group" aria-label="Tag what happened"></div>
+          <p id="livePlayersLabel" class="live-label">2 · WHO · OPTIONAL, SKIP IF UNSURE</p>
+          <div id="livePlayers" class="live-players" role="group" aria-label="Add players to the last event"></div>
+          <div id="liveLast" class="live-last" hidden>
+            <div class="live-last-text">
+              <span id="liveLastTime" class="live-last-time"></span>
+              <strong id="liveLastText"></strong>
+            </div>
+            <button id="liveChangeButton" class="player-button" type="button">Change</button>
+            <button id="liveUndoButton" class="player-button" type="button">Undo</button>
+          </div>
+          <p id="liveSync" class="live-sync" role="status"></p>
+          <div class="live-end">
+            <button id="liveHalfButton" class="live-half" type="button">⏸ Half-time</button>
+            <button id="liveEndButton" class="live-stop" type="button">■ End match</button>
+          </div>
+          <p class="live-help">Players go on the last event. Not sure who? Just tap the next type: the last one is kept without a player.</p>
+        </div>
+
+        <div id="liveDone" class="live-done" hidden>
+          <p class="eyebrow">MATCH ENDED</p>
+          <h1 id="liveDoneTitle"></h1>
+          <p id="liveDoneText" class="subtitle"></p>
+          <button id="liveDoneButton" class="button button-primary" type="button">Back to the library</button>
+        </div>
+      </section>
+
+      <dialog id="liveTypeDialog" class="live-type-dialog" aria-labelledby="liveTypeHeading">
+        <div class="live-sheet-head">
+          <div>
+            <h2 id="liveTypeHeading">Pick a type</h2>
+            <span id="liveTypeTime" class="live-type-time"></span>
+          </div>
+          <button id="liveTypeLater" class="player-button" type="button">Later</button>
+        </div>
+        <input id="liveTypeSearch" type="search" placeholder="Search, or type your own name for it" aria-label="Search event types" autocomplete="off">
+        <div id="liveTypeList" class="live-type-list"></div>
+      </dialog>
 
       <section id="teamsPanel" class="tab-panel teams-panel" aria-labelledby="teamsHeading" hidden>
         <section class="intro">

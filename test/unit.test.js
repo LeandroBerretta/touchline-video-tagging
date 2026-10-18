@@ -91,10 +91,12 @@ test("playlist running time counts overlapping clips once", () => {
   assert.equal(app.playlistSeconds([], 20), 0);
 });
 
-test("a video with only markers stays Not started", () => {
-  assert.equal(app.librarySection({ status: "in_progress", tags: [{ eventType: "start_of_game" }] }), "queued");
-  assert.equal(app.librarySection({ status: "in_progress", tags: [{ eventType: "" }] }), "in_progress");
-  assert.equal(app.librarySection({ status: "published", tags: [] }), "published");
+test("a video with only markers stays Not started; a live match without a video is Waiting for video", () => {
+  const url = "https://vimeo.com/1";
+  assert.equal(app.librarySection({ status: "in_progress", vimeoUrl: url, tags: [{ eventType: "start_of_game" }] }), "queued");
+  assert.equal(app.librarySection({ status: "in_progress", vimeoUrl: url, tags: [{ eventType: "" }] }), "in_progress");
+  assert.equal(app.librarySection({ status: "published", vimeoUrl: url, tags: [] }), "published");
+  assert.equal(app.librarySection({ status: "in_progress", vimeoUrl: "", tags: [{ eventType: "corner" }] }), "waiting");
 });
 
 test("friendly errors for common Supabase messages", () => {

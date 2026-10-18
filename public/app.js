@@ -120,6 +120,17 @@ const state = {
   sessionUserId: null,
   // Done groups start folded; this holds the ones the admin has opened.
   expandedGroups: new Set(),
+  // Live mode: the match being tagged on this device (see "Live mode" below).
+  live: null,
+  liveSyncTimer: null,
+  liveSyncing: false,
+  liveSyncAgain: false,
+  liveTicker: null,
+  liveTypeTargetId: "",
+  wakeLock: null,
+  alignNudge: 0,
+  // A live match from Waiting for video whose Vimeo link is being entered.
+  attachRecord: null,
 };
 
 function showNotice(selector, message, kind = "", action = null) {
@@ -255,6 +266,8 @@ function setTab(tab) {
   $("#tagPanel").hidden = tab !== "tag";
   $("#watchPanel").hidden = tab !== "watch";
   $("#teamsPanel").hidden = tab !== "teams";
+  $("#livePanel").hidden = tab !== "live";
+  document.body.classList.toggle("live-open", tab === "live");
   if (tab === "teams") renderTeams();
 }
 
@@ -336,6 +349,9 @@ function serializeTag(tag) {
     note: (tag.note || "").trim(),
     completed: isComplete(tag),
     done: isDone(tag),
+    // Live moments keep the time they were tagged, so they can be lined up with the video again later.
+    ...(typeof tag.liveAt === "number" ? { liveAt: tag.liveAt, liveHalf: tag.liveHalf === 2 ? 2 : 1 } : {}),
+    ...(tag.liveAnchor ? { liveAnchor: tag.liveAnchor } : {}),
   };
 }
 
@@ -548,7 +564,7 @@ function refreshActions() {
   const canSave = isAdmin && !!state.activeRecord && state.playerReady && !state.isSaving;
   $("#saveVideoButton").hidden = isPublished;
   // Add to queue saves the form as a new video, so it only makes sense when no video is open.
-  $("#queueVideoButton").hidden = !!state.activeRecord;
+  $("#queueVideoButton").hidden = !!state.activeRecord || !!state.attachRecord;
   $("#unpublishVideoButton").hidden = !isPublished;
   $("#unpublishVideoButton").disabled = !canSave;
   $("#saveVideoButton").disabled = !canSave || !state.isDirty;
@@ -569,6 +585,8 @@ function refreshActions() {
 // and it moves to In progress as soon as it is saved with a moment.
 function librarySection(record) {
   if (record.status === "published") return "published";
+  // A match tagged live has no Vimeo link until its video is attached.
+  if (!record.vimeoUrl) return "waiting";
   return record.tags.some((tag) => !markerTypes.has(tag.eventType)) ? "in_progress" : "queued";
 }
 
@@ -659,7 +677,10 @@ function renderLibraryTeamFilter() {
 function renderLibrary() {
   renderLibraryTeamFilter();
   const filtering = libraryFilterActive();
+  const waiting = state.records.filter((record) => librarySection(record) === "waiting");
+  $("#waitingSection").hidden = !waiting.length;
   for (const [status, listSelector, countSelector, emptyMessage] of [
+    ["waiting", "#waitingList", "#waitingCount", ""],
     ["queued", "#queueList", "#queueCount", "Nothing waiting. Use Add to queue to line up a video."],
     ["in_progress", "#inProgressList", "#inProgressCount", "No videos in progress."],
     ["published", "#publishedList", "#publishedCount", "No published videos yet."],
@@ -690,7 +711,10 @@ function renderLibrary() {
       const incomplete = record.tags.filter((tag) => !isComplete(tag)).length;
       const details = document.createElement("span");
       const teamName = state.teams.find((team) => team.id === record.teamId)?.name || "";
-      details.textContent = status === "queued"
+      const liveHere = state.live?.id === record.id && !state.live.endedAt;
+      details.textContent = status === "waiting"
+        ? [teamName, liveHere ? "Live now" : "Tagged live", plural(record.tags.filter((tag) => !markerTypes.has(tag.eventType) && !tag.liveAnchor).length, "moment"), "No video yet"].filter(Boolean).join(" · ")
+        : status === "queued"
         ? [teamName, `Added ${new Date(record.createdAt).toLocaleDateString()}`].filter(Boolean).join(" · ")
         : [
           teamName,
@@ -700,6 +724,11 @@ function renderLibrary() {
         ].filter(Boolean).join(" · ");
       button.append(title, details);
       button.addEventListener("click", async () => {
+        if (status === "waiting") {
+          if (liveHere) openLive();
+          else await startAttach(record);
+          return;
+        }
         await flushAutosave();
         if (!confirmDiscard()) return;
         $("#videoName").value = record.title;
@@ -3266,6 +3295,10 @@ async function openVideo(value, record = null) {
   }
 
   state.video = video;
+  // A live match from Waiting for video gets its first Vimeo link here.
+  const attaching = !!record && !record.vimeoUrl;
+  state.attachRecord = null;
+  $("#openVideoButton").textContent = "Open video";
   if (record && state.teamsAvailable) {
     renderTeamOptions();
     $("#videoTeam").value = record.teamId && state.teams.some((team) => team.id === record.teamId)
@@ -3301,6 +3334,7 @@ async function openVideo(value, record = null) {
   $("#saveHint").textContent = record ? `Saved ${record.status === "published" ? "as published" : "in progress"}` : "Not saved yet";
   renderTags();
   renderLibrary();
+  renderLiveAlign();
   $("#tagPanel").classList.add("has-video");
   $("#videoCard").hidden = false;
   $("#tagsCard").hidden = false;
@@ -3331,6 +3365,12 @@ async function openVideo(value, record = null) {
     updatePlayerClock(0);
     renderTimeline();
     setPlayerReady(true);
+    renderAlignPreview();
+    if (attaching) {
+      setDirty();
+      notify(`Video attached to ${record.title}. Now line up the live moments under the video: find kick-off, or type the clock shown on screen.`, "success");
+      return;
+    }
     notify(record
       ? record.status === "published"
         ? `Opened ${record.title}. It is published: viewers see your edits once you re-publish.`
@@ -3448,6 +3488,23 @@ async function saveVideo(mode = "progress") {
   }
 }
 
+// Waiting for video: the form asks for the live match's Vimeo link, and Attach video opens it with its moments.
+async function startAttach(record) {
+  await startNewVideo();
+  if (state.activeRecord) return;
+  state.attachRecord = record;
+  $("#videoName").value = record.title;
+  if (state.teamsAvailable) {
+    renderTeamOptions();
+    if (state.teams.some((team) => team.id === record.teamId)) $("#videoTeam").value = record.teamId;
+  }
+  $("#openVideoButton").textContent = "Attach video";
+  refreshActions();
+  renderLibrary();
+  notify(`Paste the Vimeo link for "${record.title}", then press Attach video. Its live moments come with it.`);
+  $("#videoUrl").focus();
+}
+
 async function startNewVideo() {
   if (state.role !== "admin") return;
   await flushAutosave();
@@ -3462,6 +3519,8 @@ async function startNewVideo() {
   state.video = null;
   state.player = null;
   state.activeRecord = null;
+  state.attachRecord = null;
+  $("#openVideoButton").textContent = "Open video";
   state.tags = [];
   state.isDirty = false;
   cancelAutosave();
@@ -3508,6 +3567,15 @@ function showSignedOut() {
   state.selectedTeamId = "";
   state.editingMemberId = "";
   state.isSaving = false;
+  // A live match stays in this browser's storage and comes back at the next sign-in.
+  clearInterval(state.liveTicker);
+  clearTimeout(state.liveSyncTimer);
+  state.liveTicker = null;
+  state.live = null;
+  state.attachRecord = null;
+  releaseScreen();
+  document.body.classList.remove("live-open");
+  $("#livePanel").hidden = true;
   exitStage();
   $("#tagPanel").classList.remove("has-video");
   $("#loginPanel").hidden = false;
@@ -3570,6 +3638,10 @@ async function activateSession(session) {
   }
   setTab(state.role === "admin" ? "tag" : "watch");
   if (state.role === "admin") notify("Signed in. Your cloud video library is ready.");
+  if (state.role === "admin" && restoreLive()) {
+    renderLibrary();
+    if (liveRunning()) openLive();
+  }
   await openLinkedPlaylist();
 }
 
@@ -3695,6 +3767,10 @@ $("#videoForm").addEventListener("submit", (event) => {
   if (!title) {
     notify("Enter a name for this video.", "error");
     $("#videoName").focus();
+    return;
+  }
+  if (state.attachRecord) {
+    openVideo($("#videoUrl").value.trim(), { ...state.attachRecord, title });
     return;
   }
   openVideo($("#videoUrl").value.trim());
@@ -4055,6 +4131,703 @@ window.addEventListener("keyup", (event) => {
   if (state.numberBuffer) assignShirtNumber();
 });
 
+// ---- Live mode ----
+// Tag a match on the sideline as it happens, then attach the video later. Each live moment keeps the
+// phone's time of day (liveAt) and its half (liveHalf); its timestampSeconds starts as time since kick-off
+// and is recomputed when the admin lines the moments up with the uploaded video. The match lives in this
+// browser's storage first, so a lost signal never loses a tag, and is sent to the library whenever it can be.
+const liveStorageKey = "touchline.liveMatch";
+const liveSyncDelayMs = 1500;
+const liveRetryMs = 10000;
+// The phone's clock, kept in one place so tests can control it.
+const liveClock = { now: () => Date.now() };
+
+function liveRunning() {
+  return !!state.live && !state.live.endedAt;
+}
+
+function saveLiveLocal() {
+  try {
+    if (state.live) window.localStorage.setItem(liveStorageKey, JSON.stringify(state.live));
+    else window.localStorage.removeItem(liveStorageKey);
+  } catch (error) {
+    console.warn("Could not keep the live match on this device:", error);
+  }
+}
+
+function loadLiveLocal() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(liveStorageKey) || "null");
+    if (saved && typeof saved.id === "string" && typeof saved.kickoffAt === "number" && Array.isArray(saved.tags)) {
+      return { unsent: [], ...saved };
+    }
+  } catch {
+    // Damaged or unavailable storage: nothing to resume.
+  }
+  return null;
+}
+
+// Match time for a moment: the first half counts from kick-off; the second half carries on from the
+// first half's length, as a referee's watch would.
+function liveMatchSeconds(at, live = state.live) {
+  if (live.secondHalfAt && at >= live.secondHalfAt) {
+    return (live.halfTimeAt - live.kickoffAt) / 1000 + (at - live.secondHalfAt) / 1000;
+  }
+  return (at - live.kickoffAt) / 1000;
+}
+
+function liveTag(eventType, extra = {}) {
+  const at = liveClock.now();
+  const live = state.live;
+  const tag = {
+    id: crypto.randomUUID(),
+    timestampSeconds: Math.max(0, (at - live.kickoffAt) / 1000),
+    eventType,
+    customEventType: "",
+    playerIds: [],
+    otherPlayers: "",
+    playerNames: "",
+    note: "",
+    done: false,
+    liveAt: at,
+    liveHalf: live.secondHalfAt ? 2 : 1,
+    ...extra,
+  };
+  tag.done = isComplete(tag);
+  return tag;
+}
+
+function liveChanged(ids) {
+  const live = state.live;
+  live.unsent = [...new Set([...(live.unsent || []), ...ids])];
+  saveLiveLocal();
+  scheduleLiveSync();
+  renderLive();
+}
+
+function addLiveTag(tag, { last = true } = {}) {
+  state.live.tags.push(tag);
+  if (last) state.live.lastId = tag.id;
+  liveChanged([tag.id]);
+  return tag;
+}
+
+function scheduleLiveSync(delay = liveSyncDelayMs) {
+  clearTimeout(state.liveSyncTimer);
+  state.liveSyncTimer = setTimeout(syncLive, delay);
+}
+
+function liveRow(live) {
+  return {
+    name: live.title,
+    tags: live.tags.map(serializeTag),
+    updated_at: new Date().toISOString(),
+    ...(state.teamsAvailable ? { team_id: live.teamId || null } : {}),
+  };
+}
+
+// Sends the whole live match to the library. The first send creates the video (with no Vimeo link yet);
+// later sends only update its name, team and moments, so they never undo an attached video link.
+async function syncLive() {
+  clearTimeout(state.liveSyncTimer);
+  state.liveSyncTimer = null;
+  const live = state.live;
+  if (!live || !supabase || state.role !== "admin") return;
+  if (live.inserted && !live.unsent.length) return;
+  if (state.liveSyncing) {
+    state.liveSyncAgain = true;
+    return;
+  }
+  const sending = new Set(live.unsent);
+  state.liveSyncing = true;
+  renderLiveSync();
+  try {
+    const row = liveRow(live);
+    const { data, error } = live.inserted
+      ? await supabase.from("videos").update(row).eq("id", live.id).select("*").maybeSingle()
+      : await supabase.from("videos").upsert({ id: live.id, vimeo_url: "", status: "in_progress", published_at: null, ...row }, { onConflict: "id" }).select("*").single();
+    if (error) throw error;
+    if (!data) throw new Error("This live match is no longer in the library.");
+    live.inserted = true;
+    live.unsent = live.unsent.filter((id) => !sending.has(id));
+    live.failed = false;
+    const saved = mapVideoRow(data);
+    state.records = [saved, ...state.records.filter((record) => record.id !== saved.id)];
+    if (live.endedAt && !live.unsent.length) {
+      // Everything is in the library: this device no longer needs its copy.
+      try {
+        window.localStorage.removeItem(liveStorageKey);
+      } catch {
+        // Nothing to clear.
+      }
+    } else {
+      saveLiveLocal();
+    }
+    renderLibrary();
+  } catch (error) {
+    console.warn("Live match not sent yet; it is kept on this device:", error);
+    live.failed = true;
+    saveLiveLocal();
+    if (state.live === live) scheduleLiveSync(liveRetryMs);
+  } finally {
+    state.liveSyncing = false;
+    if (state.liveSyncAgain) {
+      state.liveSyncAgain = false;
+      if (state.live === live && live.unsent.length && !live.failed) scheduleLiveSync(0);
+    }
+    renderLive();
+  }
+}
+
+function renderLiveSync() {
+  const live = state.live;
+  const sync = $("#liveSync");
+  if (!live) {
+    sync.textContent = "";
+    return;
+  }
+  const waiting = (live.unsent || []).length;
+  const offline = live.failed || window.navigator.onLine === false;
+  sync.className = "live-sync";
+  if (!waiting && live.inserted) {
+    sync.textContent = "✓ Everything is saved to the library";
+    sync.classList.add("ok");
+  } else if (offline) {
+    sync.textContent = `No signal: ${plural(waiting, "change")} saved on this phone, sent when back online`;
+    sync.classList.add("waiting");
+  } else {
+    sync.textContent = "Sending…";
+  }
+}
+
+function liveLastTag() {
+  return state.live?.tags.find((tag) => tag.id === state.live.lastId) || null;
+}
+
+function liveClockSeconds() {
+  const live = state.live;
+  const now = liveClock.now();
+  if (live.endedAt) return liveMatchSeconds(live.endedAt);
+  if (live.halfTimeAt && !live.secondHalfAt) return (live.halfTimeAt - live.kickoffAt) / 1000;
+  return liveMatchSeconds(now);
+}
+
+function renderLiveClock() {
+  const live = state.live;
+  if (!live || live.endedAt) return;
+  const moments = live.tags.filter((tag) => !markerTypes.has(tag.eventType) && !tag.liveAnchor).length;
+  const phase = live.secondHalfAt ? "2nd half" : live.halfTimeAt ? "Half-time" : "1st half";
+  $("#liveClock").textContent = formatTime(liveClockSeconds());
+  $("#livePhase").textContent = `${phase} · ${plural(moments, "moment")}`;
+}
+
+function liveTypeButton(label, hint, onClick, className = "") {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `live-type ${className}`.trim();
+  const small = document.createElement("small");
+  small.textContent = hint;
+  button.append(label, small);
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+function renderLive() {
+  const live = state.live;
+  const running = liveRunning();
+  $("#liveSetup").hidden = !!live;
+  $("#liveRun").hidden = !running;
+  $("#liveDone").hidden = !live?.endedAt;
+  $("#liveBadge").textContent = running ? "● LIVE" : "LIVE MODE";
+  $("#liveBadge").classList.toggle("on", running);
+  renderLiveResume();
+  if (!live) {
+    renderLiveSetup();
+    return;
+  }
+  renderLiveSync();
+  if (live.endedAt) {
+    const waiting = (live.unsent || []).length;
+    const moments = live.tags.filter((tag) => !markerTypes.has(tag.eventType) && !tag.liveAnchor).length;
+    $("#liveDoneTitle").textContent = live.title;
+    $("#liveDoneText").textContent = waiting
+      ? `${plural(moments, "moment")} tagged. ${plural(waiting, "change")} still waiting to send: keep this page open until you have signal.`
+      : `${plural(moments, "moment")} saved to the library under Waiting for video. When the video is uploaded, open the match there and paste its Vimeo link.`;
+    $("#liveDoneButton").disabled = waiting > 0;
+    return;
+  }
+  $("#liveTitle").textContent = live.title;
+  renderLiveClock();
+  const last = liveLastTag();
+  $("#liveTypes").replaceChildren(
+    ...state.quickTypes.map((value) => {
+      const button = liveTypeButton(eventTypeName(value), "", () => liveMark(value));
+      button.querySelector("small").remove();
+      button.classList.toggle("on", last?.eventType === value && !last.customEventType);
+      return button;
+    }),
+    liveTypeButton("Moment", "type later", () => liveMark(""), "untyped"),
+    liveTypeButton("More types…", `search all ${pickableTypes().length}`, liveMoreTypes, "more"),
+  );
+  const players = teamPlayers(live.teamId);
+  $("#livePlayersLabel").hidden = !players.length;
+  $("#livePlayers").hidden = !players.length;
+  $("#livePlayers").replaceChildren(...players.map((player) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "live-player";
+    const picked = !!last && (last.playerIds || []).includes(player.id);
+    button.classList.toggle("on", picked);
+    button.setAttribute("aria-pressed", String(picked));
+    button.disabled = !last;
+    button.textContent = player.number === null || player.number === undefined ? player.name.split(" ")[0] : String(player.number);
+    button.title = memberLabel(player);
+    button.setAttribute("aria-label", `${memberLabel(player)} on the last event`);
+    button.addEventListener("click", () => liveTogglePlayer(player.id));
+    return button;
+  }));
+  $("#liveLast").hidden = !last;
+  if (last) {
+    const names = (last.playerIds || []).map((id) => state.memberById.get(id)).filter(Boolean).map(memberLabel);
+    $("#liveLastTime").textContent = `LAST · ${formatTime(liveMatchSeconds(last.liveAt))}`;
+    $("#liveLastText").textContent = [isComplete(last) ? tagEventLabel(last) : "Moment (type later)", ...names].join(" · ");
+  }
+  const atHalfTime = !!live.halfTimeAt && !live.secondHalfAt;
+  $("#liveHalfButton").hidden = !!live.secondHalfAt;
+  $("#liveHalfButton").textContent = atHalfTime ? "▶ Start 2nd half" : "⏸ Half-time";
+}
+
+function renderLiveSetup() {
+  const field = $("#liveTeamField");
+  field.hidden = !state.teamsAvailable || !state.teams.length;
+  const select = $("#liveTeam");
+  const current = select.value;
+  select.replaceChildren(new Option("Choose the team…", ""), ...state.teams.map((team) => new Option(team.name, team.id)));
+  select.value = state.teams.some((team) => team.id === current) ? current : (state.teams.length === 1 ? state.teams[0].id : "");
+  if (!$("#liveName").value) {
+    $("#liveName").placeholder = `e.g. ${state.teams[0]?.name || "Our team"} vs Rivals — ${new Date().toLocaleDateString([], { month: "long", day: "numeric" })}`;
+  }
+}
+
+function renderLiveResume() {
+  const live = state.live;
+  $("#liveResume").hidden = !live;
+  if (!live) return;
+  const waiting = (live.unsent || []).length;
+  $("#liveResumeText").textContent = live.endedAt
+    ? `"${live.title}" ended. ${plural(waiting, "change")} still waiting to send.`
+    : `Live match running: "${live.title}"`;
+  $("#liveResumeButton").textContent = live.endedAt ? "See the match" : "Back to the match";
+}
+
+function notifyLive(message, kind = "") {
+  showNotice("#liveNotice", message, kind);
+}
+
+function openLive() {
+  if (state.role !== "admin") return;
+  setTab("live");
+  renderLive();
+  if (liveRunning()) keepScreenOn();
+}
+
+function closeLive() {
+  setTab("tag");
+  renderLibrary();
+}
+
+async function keepScreenOn() {
+  if (!liveRunning() || state.wakeLock || !window.navigator.wakeLock) return;
+  try {
+    state.wakeLock = await window.navigator.wakeLock.request("screen");
+    state.wakeLock.addEventListener?.("release", () => { state.wakeLock = null; });
+  } catch (error) {
+    console.warn("The screen may turn off during the match:", error);
+  }
+}
+
+function releaseScreen() {
+  state.wakeLock?.release?.().catch(() => {});
+  state.wakeLock = null;
+}
+
+function startLiveMatch(event) {
+  event?.preventDefault();
+  if (state.role !== "admin" || liveRunning()) return;
+  const title = $("#liveName").value.trim();
+  if (!title) {
+    notifyLive("Enter a name for this match.", "error");
+    $("#liveName").focus();
+    return;
+  }
+  const teamId = state.teamsAvailable ? ($("#liveTeam").value || null) : null;
+  if (state.teamsAvailable && state.teams.length && !teamId) {
+    notifyLive("Choose the team for this match.", "error");
+    $("#liveTeam").focus();
+    return;
+  }
+  const kickoffAt = liveClock.now();
+  state.live = { id: crypto.randomUUID(), title, teamId, kickoffAt, halfTimeAt: null, secondHalfAt: null, endedAt: null, tags: [], lastId: null, unsent: [], inserted: false, failed: false };
+  addLiveTag(liveTag("start_of_game", { liveAnchor: "kickoff" }), { last: false });
+  clearInterval(state.liveTicker);
+  state.liveTicker = setInterval(renderLiveClock, 1000);
+  keepScreenOn();
+  notifyLive("Match started. Tap what happens: the time is saved the moment you tap.", "success");
+}
+
+function liveMark(eventType) {
+  if (!liveRunning()) return null;
+  const tag = addLiveTag(liveTag(eventType));
+  notifyLive(`${isComplete(tag) ? tagEventLabel(tag) : "Moment"} at ${formatTime(liveMatchSeconds(tag.liveAt))}.`, "success");
+  return tag;
+}
+
+function liveTogglePlayer(playerId) {
+  const tag = liveLastTag();
+  if (!tag) return;
+  const ids = tag.playerIds || [];
+  tag.playerIds = ids.includes(playerId) ? ids.filter((id) => id !== playerId) : [...ids, playerId];
+  liveChanged([tag.id]);
+}
+
+function liveUndo() {
+  const tag = liveLastTag();
+  if (!tag) return;
+  state.live.tags = state.live.tags.filter((item) => item.id !== tag.id);
+  state.live.lastId = null;
+  liveChanged([tag.id]);
+  notifyLive(`Removed the ${isComplete(tag) ? tagEventLabel(tag) : "moment"} at ${formatTime(liveMatchSeconds(tag.liveAt))}.`);
+}
+
+function liveHalfTime() {
+  const live = state.live;
+  if (!liveRunning() || live.secondHalfAt) return;
+  if (!live.halfTimeAt) {
+    if (!window.confirm("Half-time now? The clock stops until you start the second half.")) return;
+    const tag = liveTag("half_time", { done: true });
+    live.halfTimeAt = tag.liveAt;
+    addLiveTag(tag, { last: false });
+    notifyLive("Half-time. Press Start 2nd half on the restart whistle.", "success");
+    return;
+  }
+  const at = liveClock.now();
+  live.secondHalfAt = at;
+  addLiveTag(liveTag("kick_off", { liveAnchor: "second_half", liveHalf: 2 }), { last: false });
+  notifyLive("Second half started.", "success");
+}
+
+function liveEnd() {
+  const live = state.live;
+  if (!liveRunning() || !window.confirm("End the match? You can't add more live moments after this.")) return;
+  const tag = liveTag("end_of_game", { done: true });
+  live.endedAt = tag.liveAt;
+  live.lastId = null;
+  clearInterval(state.liveTicker);
+  state.liveTicker = null;
+  releaseScreen();
+  addLiveTag(tag, { last: false });
+  scheduleLiveSync(0);
+}
+
+function liveFinish() {
+  const live = state.live;
+  if (!live?.endedAt || (live.unsent || []).length) return;
+  state.live = null;
+  saveLiveLocal();
+  $("#liveName").value = "";
+  notifyLive("");
+  closeLive();
+  notify(`"${live.title}" is under Waiting for video. Open it there and paste the Vimeo link when the video is uploaded.`, "success");
+}
+
+// Brings back a match left open on this device (a reload or a closed tab mid-match).
+function restoreLive() {
+  const saved = loadLiveLocal();
+  if (!saved || state.role !== "admin") return false;
+  state.live = saved;
+  if (!saved.endedAt) {
+    clearInterval(state.liveTicker);
+    state.liveTicker = setInterval(renderLiveClock, 1000);
+  }
+  if (!saved.inserted || saved.unsent.length) scheduleLiveSync(0);
+  return true;
+}
+
+// Every event type a moment can have from the "More types" sheet (markers come from the match buttons).
+function pickableTypes() {
+  return eventTypes.filter(([value]) => value && value !== "other" && !markerTypes.has(value));
+}
+
+// "More types…" saves the time first, then asks for the type, so searching never makes the tag late.
+function liveMoreTypes() {
+  const tag = liveMark("");
+  if (tag) openLiveTypes(tag.id);
+}
+
+function openLiveTypes(tagId) {
+  const tag = state.live?.tags.find((item) => item.id === tagId);
+  if (!tag) return;
+  state.liveTypeTargetId = tagId;
+  $("#liveTypeTime").textContent = `Time already saved · ${formatTime(liveMatchSeconds(tag.liveAt))}`;
+  $("#liveTypeSearch").value = "";
+  renderLiveTypeList();
+  const dialog = $("#liveTypeDialog");
+  if (!dialog.open) dialog.showModal();
+  // On a phone the keyboard would cover the list, so only put the cursor in the search box with a mouse.
+  if (!window.matchMedia?.("(pointer: coarse)").matches) $("#liveTypeSearch").focus();
+  else $("#liveTypeSearch").blur();
+}
+
+function renderLiveTypeList() {
+  const query = $("#liveTypeSearch").value.trim();
+  const needle = query.toLowerCase();
+  const used = new Set(state.live?.tags.map((tag) => tag.eventType) || []);
+  const types = pickableTypes()
+    .filter(([, label]) => !needle || label.toLowerCase().includes(needle))
+    .sort(([firstValue, first], [secondValue, second]) => (used.has(secondValue) - used.has(firstValue)) || first.localeCompare(second));
+  const buttons = types.map(([value, label]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "live-type-choice";
+    button.classList.toggle("used", used.has(value));
+    button.textContent = label;
+    button.addEventListener("click", () => setLiveType(value, ""));
+    return button;
+  });
+  if (query && !types.some(([, label]) => label.toLowerCase() === needle)) {
+    const own = document.createElement("button");
+    own.type = "button";
+    own.className = "live-type-choice own";
+    own.textContent = `Use "${query}"`;
+    own.addEventListener("click", () => setLiveType("other", query));
+    buttons.push(own);
+  }
+  $("#liveTypeList").replaceChildren(...buttons);
+}
+
+function setLiveType(eventType, customEventType) {
+  const tag = state.live?.tags.find((item) => item.id === state.liveTypeTargetId);
+  $("#liveTypeDialog").close();
+  if (!tag) return;
+  tag.eventType = eventType;
+  tag.customEventType = customEventType;
+  tag.done = isComplete(tag);
+  state.liveTypeTargetId = "";
+  liveChanged([tag.id]);
+  notifyLive(`${tagEventLabel(tag)} at ${formatTime(liveMatchSeconds(tag.liveAt))}.`, "success");
+}
+
+// ---- Lining live moments up with the video ----
+
+function liveAnchor(tags, name) {
+  return tags.find((tag) => tag.liveAnchor === name && typeof tag.liveAt === "number") || null;
+}
+
+function isLiveMatch(tags) {
+  return !!liveAnchor(tags, "kickoff");
+}
+
+// Accepts "14:15:09", "14:15", "2:15:09 pm" and returns seconds since midnight, or null.
+function parseClockTime(value) {
+  const match = /^\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([ap]\.?m\.?)?\s*$/i.exec(value || "");
+  if (!match) return null;
+  let hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = Number(match[3] || 0);
+  const meridiem = match[4]?.[0].toLowerCase();
+  if (minutes > 59 || seconds > 59 || hours > (meridiem ? 12 : 23) || (meridiem && hours === 0)) return null;
+  if (meridiem === "p" && hours < 12) hours += 12;
+  if (meridiem === "a" && hours === 12) hours = 0;
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+function secondsOfDay(at) {
+  const date = new Date(at);
+  return date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds() + date.getMilliseconds() / 1000;
+}
+
+// Where each live moment lands in the video. method: "kickoff" (one anchor), "halves" (each half from
+// its own kick-off) or "clock" (the camera's on-screen time of day at a known video time).
+// Returns a Map of tag id to video seconds; throws with a message the admin can act on.
+function liveAlignment(tags, { method, kickoff, second, clockVideo, clockShown, nudge = 0 }) {
+  const first = liveAnchor(tags, "kickoff");
+  if (!first) throw new Error("These moments weren't tagged live.");
+  const restart = liveAnchor(tags, "second_half");
+  let place;
+  if (method === "clock") {
+    if (clockVideo === null || clockVideo === undefined) throw new Error("Enter the video time, e.g. 04:12.");
+    if (clockShown === null || clockShown === undefined) throw new Error("Enter the time the clock on screen shows, e.g. 14:15:09.");
+    place = (tag) => {
+      let difference = secondsOfDay(tag.liveAt) - clockShown;
+      // A match never spans more than a few hours, so a big jump means it crossed midnight.
+      if (difference > 43200) difference -= 86400;
+      if (difference < -43200) difference += 86400;
+      return clockVideo + difference;
+    };
+  } else {
+    if (kickoff === null || kickoff === undefined) throw new Error("Enter where kick-off is in the video, e.g. 04:12.");
+    const fromKickoff = (tag) => kickoff + (tag.liveAt - first.liveAt) / 1000;
+    if (method === "halves") {
+      if (!restart) throw new Error("This match has no second-half kick-off. Use Find kick-off instead.");
+      if (second === null || second === undefined) throw new Error("Enter where the second half kicks off in the video.");
+      if (second <= kickoff) throw new Error("The second-half kick-off must come after kick-off.");
+      place = (tag) => (tag.liveHalf === 2 ? second + (tag.liveAt - restart.liveAt) / 1000 : fromKickoff(tag));
+    } else {
+      place = fromKickoff;
+    }
+  }
+  return new Map(tags
+    .filter((tag) => typeof tag.liveAt === "number")
+    .map((tag) => [tag.id, Math.max(0, Math.round((place(tag) + nudge) * 10) / 10)]));
+}
+
+function alignMethod() {
+  return document.querySelector('input[name="alignMethod"]:checked')?.value || "kickoff";
+}
+
+function alignInputs() {
+  const time = (selector) => {
+    const value = $(selector).value.trim();
+    return value ? parseTime(value) : null;
+  };
+  return {
+    method: alignMethod(),
+    kickoff: time("#alignKickoff"),
+    second: time("#alignSecond"),
+    clockVideo: time("#alignClockVideo"),
+    clockShown: $("#alignClockShown").value.trim() ? parseClockTime($("#alignClockShown").value) : null,
+    nudge: state.alignNudge,
+  };
+}
+
+// Shows the card for live matches, filled in from where the moments sit now.
+function renderLiveAlign() {
+  const card = $("#liveAlign");
+  const live = isLiveMatch(state.tags) && state.role === "admin";
+  card.hidden = !live;
+  if (!live) return;
+  const first = liveAnchor(state.tags, "kickoff");
+  const restart = liveAnchor(state.tags, "second_half");
+  const lined = first.timestampSeconds > 0;
+  card.open = !lined;
+  state.alignNudge = 0;
+  $("#alignKickoff").value = lined ? formatTime(first.timestampSeconds) : "";
+  $("#alignSecond").value = lined && restart ? formatTime(restart.timestampSeconds) : "";
+  $("#alignClockVideo").value = "";
+  $("#alignClockShown").value = "";
+  $("#alignHalvesOption").disabled = !restart;
+  $("#alignHalvesNote").textContent = restart
+    ? "Most accurate. Fixes a late restart or a camera paused at half-time."
+    : "Needs Start 2nd half pressed during the match.";
+  if (!restart && alignMethod() === "halves") document.querySelector('input[name="alignMethod"][value="kickoff"]').checked = true;
+  renderAlignPreview();
+}
+
+function renderAlignPreview() {
+  for (const fields of document.querySelectorAll(".align-fields")) {
+    fields.hidden = !fields.dataset.methods.split(" ").includes(alignMethod());
+  }
+  $("#alignNudge").textContent = `${state.alignNudge > 0 ? "+" : ""}${state.alignNudge} s`;
+  const live = state.tags.filter((tag) => typeof tag.liveAt === "number");
+  $("#alignApplyButton").textContent = `Apply to ${plural(live.filter((tag) => !markerTypes.has(tag.eventType)).length, "moment")}`;
+  let placed;
+  try {
+    placed = liveAlignment(state.tags, alignInputs());
+  } catch (error) {
+    $("#alignPreview").textContent = error.message;
+    $("#alignApplyButton").disabled = true;
+    return;
+  }
+  $("#alignApplyButton").disabled = !state.playerReady;
+  const first = liveAnchor(state.tags, "kickoff");
+  const seconds = [...placed.values()];
+  const last = Math.max(...seconds);
+  const late = state.videoDuration ? seconds.filter((value) => value > state.videoDuration).length : 0;
+  $("#alignPreview").textContent = [
+    `Kick-off lands at ${formatTime(placed.get(first.id))}, the last moment at ${formatTime(last)}.`,
+    late ? `${plural(late, "moment")} would land after the end of the video: check the times you entered.` : "",
+  ].filter(Boolean).join(" ");
+}
+
+function applyLiveAlignment() {
+  let placed;
+  try {
+    placed = liveAlignment(state.tags, alignInputs());
+  } catch (error) {
+    notify(error.message, "error");
+    return;
+  }
+  state.tags = state.tags.map((tag) => (placed.has(tag.id) ? { ...tag, timestampSeconds: placed.get(tag.id) } : tag)).sort(byTime);
+  setDirty();
+  renderTags();
+  const first = liveAnchor(state.tags, "kickoff");
+  const kickoffAt = first.timestampSeconds;
+  $("#liveAlign").open = false;
+  notify(`${plural(placed.size, "live moment")} lined up: kick-off is at ${formatTime(kickoffAt)}. Click a tick on the timeline to check one.`, "success");
+  renderAlignPreview();
+}
+
+async function usePausedTime(selector) {
+  if (!state.player || !state.playerReady) return;
+  try {
+    $(selector).value = formatTime(await state.player.getCurrentTime());
+    renderAlignPreview();
+  } catch (error) {
+    notify(`Could not read the video time: ${error.message}`, "error");
+  }
+}
+
+$("#liveMatchButton").addEventListener("click", async () => {
+  await flushAutosave();
+  openLive();
+});
+$("#liveResumeButton").addEventListener("click", openLive);
+$("#liveCloseButton").addEventListener("click", closeLive);
+$("#liveSetup").addEventListener("submit", startLiveMatch);
+$("#liveUndoButton").addEventListener("click", liveUndo);
+$("#liveChangeButton").addEventListener("click", () => {
+  if (state.live?.lastId) openLiveTypes(state.live.lastId);
+});
+$("#liveHalfButton").addEventListener("click", liveHalfTime);
+$("#liveEndButton").addEventListener("click", liveEnd);
+$("#liveDoneButton").addEventListener("click", liveFinish);
+$("#liveTypeLater").addEventListener("click", () => {
+  state.liveTypeTargetId = "";
+  $("#liveTypeDialog").close();
+});
+$("#liveTypeSearch").addEventListener("input", renderLiveTypeList);
+$("#liveTypeSearch").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  $("#liveTypeList button")?.click();
+});
+window.addEventListener("online", () => {
+  if (state.live && (state.live.unsent.length || !state.live.inserted)) syncLive();
+});
+window.addEventListener("offline", renderLiveSync);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible" || !liveRunning()) return;
+  renderLiveClock();
+  keepScreenOn();
+  if (state.live.unsent.length) syncLive();
+});
+document.querySelectorAll('input[name="alignMethod"]').forEach((input) => input.addEventListener("change", renderAlignPreview));
+for (const selector of ["#alignKickoff", "#alignSecond", "#alignClockVideo", "#alignClockShown"]) {
+  $(selector).addEventListener("input", renderAlignPreview);
+}
+$("#alignKickoffUse").addEventListener("click", () => usePausedTime("#alignKickoff"));
+$("#alignSecondUse").addEventListener("click", () => usePausedTime("#alignSecond"));
+$("#alignClockUse").addEventListener("click", () => usePausedTime("#alignClockVideo"));
+$("#alignNudgeDown").addEventListener("click", () => {
+  state.alignNudge -= 1;
+  renderAlignPreview();
+});
+$("#alignNudgeUp").addEventListener("click", () => {
+  state.alignNudge += 1;
+  renderAlignPreview();
+});
+$("#alignApplyButton").addEventListener("click", applyLiveAlignment);
+
 if (!supabase) {
   setLoginNotice("Supabase is not configured. Add your project URL and publishable key to public/config.js.", "error");
   $("#forgotPasswordButton").hidden = true;
@@ -4078,7 +4851,7 @@ if (!supabase) {
 }
 
 window.addEventListener("beforeunload", (event) => {
-  if (!state.isDirty) return;
+  if (!state.isDirty && !state.live?.unsent?.length) return;
   event.preventDefault();
   event.returnValue = "";
 });
