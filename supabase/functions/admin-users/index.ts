@@ -53,6 +53,21 @@ function serverKey() {
   return Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 }
 
+// The project's public key (sent by the page as "apikey"; also given to Edge Functions), for reading
+// data as the signed-in caller.
+function publicKey(request: Request) {
+  const sent = request.headers.get("apikey");
+  if (sent) return sent;
+  try {
+    const keys = JSON.parse(Deno.env.get("SUPABASE_PUBLISHABLE_KEYS") ?? "{}") as Record<string, string>;
+    const key = keys.default ?? Object.values(keys)[0];
+    if (key) return key;
+  } catch {
+    // Not set or not JSON: fall back to the older key.
+  }
+  return Deno.env.get("SUPABASE_ANON_KEY");
+}
+
 function cleanRedirect(value: unknown) {
   return typeof value === "string" && /^https?:\/\//.test(value) ? value : undefined;
 }
@@ -70,7 +85,16 @@ Deno.serve(async (request: Request) => {
   const token = (request.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
   const { data: caller, error: callerError } = await admin.auth.getUser(token);
   if (callerError || !caller?.user) return reply({ error: "Your session has expired. Sign out and sign in again." }, 401);
-  const { data: callerRole } = await admin.from("app_users").select("role").eq("user_id", caller.user.id).maybeSingle();
+  // The role is read as the caller (every user may read their own role), so this check doesn't depend
+  // on the server key; a database error is reported rather than mistaken for "not an admin".
+  const callerKey = publicKey(request);
+  if (!callerKey) return reply({ error: "The admin-users function is missing the project's public key." }, 500);
+  const asCaller = createClient(url, callerKey, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const { data: callerRole, error: roleError } = await asCaller.from("app_users").select("role").eq("user_id", caller.user.id).maybeSingle();
+  if (roleError) return reply({ error: `Could not check your role: ${roleError.message}` }, 500);
   if (callerRole?.role !== "admin") return reply({ error: "Only admins can manage users." }, 403);
 
   let body: Record<string, unknown>;
