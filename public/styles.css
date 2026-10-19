@@ -609,3 +609,37 @@ body.live-open .workspace { width: min(100% - 32px, 520px); padding: 14px 0 28px
 .tags-card.no-video .mark-controls, .tags-card.no-video #keysHelp, .tags-card.no-video .quick-bar, .tags-card.no-video .pass-chain, .tags-card.no-video .last-marked, .tags-card.no-video .tagging-options { display: none !important; }
 .no-video-box .url-controls { display: flex; flex-wrap: wrap; gap: 8px; }
 .no-video-box .url-controls input { flex: 1 1 260px; }
+
+/* Users tab */
+.users-unavailable { margin-bottom: 18px; border: 1px dashed #6b5a33; border-radius: 10px; padding: 16px; background: #1d1a12; line-height: 1.55; }
+.users-unavailable p { margin: 0 0 8px; }
+.users-content { display: grid; gap: 16px; }
+.invite-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 16px; background: #151b17; }
+.invite-field { display: grid; gap: 6px; }
+.invite-field label { font-size: 13px; font-weight: 700; }
+.invite-email { flex: 1 1 280px; }
+.invite-hint { flex-basis: 100%; margin: 0; }
+.users-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.users-tools input { width: min(100%, 280px); padding: 9px 11px; font-size: 13px; }
+.users-tools .link-button { margin: 0; }
+.users-summary { color: var(--muted); font-size: 13px; }
+.users-list { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+.user-row { display: grid; grid-template-columns: minmax(200px, 2.2fr) 110px minmax(150px, 1fr) 130px minmax(190px, auto); align-items: center; gap: 12px; min-width: 820px; border-top: 1px solid var(--line); padding: 10px 16px; font-size: 14px; }
+.user-row:first-child { border-top: 0; }
+.user-row.user-head { color: var(--soft); background: #151b17; font: 12px Consolas, monospace; letter-spacing: 1px; }
+.user-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-email small { color: var(--soft); font-size: 13px; }
+.user-role.admin { color: var(--green); font-weight: 700; }
+.user-role.none, .user-status.pending { color: var(--amber); }
+.user-when { color: var(--muted); }
+.user-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.user-actions .player-button { min-height: 34px; padding: 0 12px; font-size: 13px; }
+.user-actions .form-hint { margin: 0; }
+.user-dialog { width: min(100% - 32px, 480px); }
+.user-dialog h2 { margin: 0; overflow-wrap: anywhere; }
+.user-roles { display: grid; gap: 8px; margin: 6px 0 0; border: 0; padding: 0; }
+.user-roles legend { margin-bottom: 8px; font-size: 13px; font-weight: 700; }
+.user-section { display: grid; gap: 6px; border-top: 1px solid var(--line); padding-top: 12px; }
+.user-section .form-hint { margin: 0; }
+.user-section button { justify-self: start; }
+.user-danger strong { color: var(--red); }

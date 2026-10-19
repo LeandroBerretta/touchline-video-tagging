@@ -18,13 +18,13 @@ test("signed out: only the sign-in card shows", async () => {
   page.close();
 });
 
-test("an admin signs in to the Tag tab with Tag, Watch and Teams tabs", async () => {
+test("an admin signs in to the Tag tab with Tag, Watch, Teams and Users tabs", async () => {
   const page = await startApp({ as: null });
   await signIn(page, ADMIN);
   assert.equal(page.state.role, "admin");
   assert.equal(page.$("#appTabs").hidden, false);
   assert.equal(page.$("#tagPanel").hidden, false);
-  assert.deepEqual(page.texts(".tab-button"), ["Tag videos", "Watch videos", "Teams"]);
+  assert.deepEqual(page.texts(".tab-button"), ["Tag videos", "Watch videos", "Teams", "Users"]);
   assert.match(page.text("#signedInLabel"), /ADMIN/);
   page.close();
 });

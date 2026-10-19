@@ -9,7 +9,7 @@ the rules the UI enforces at each step.
 | Actor | Use cases |
 | --- | --- |
 | Anyone with an account | UC1 Sign in, UC8 Sign out, UC9 Reset a forgotten password |
-| Admin | UC2 Tag a video, UC10 Tag a match live, UC3 Edit or delete a moment, UC4 Save and publish, UC5 Reopen a saved video, UC6 Remove a video, UC7 Watch (published only) |
+| Admin | UC2 Tag a video, UC10 Tag a match live, UC11 Manage users, UC3 Edit or delete a moment, UC4 Save and publish, UC5 Reopen a saved video, UC6 Remove a video, UC7 Watch (published only) |
 | Viewer | UC7 Watch a published video |
 | Supabase | Authenticates users, returns the role, stores videos, enforces row-level security |
 | Vimeo | Hosts and plays the video inside an embedded player |
@@ -29,8 +29,9 @@ flowchart LR
     UC8[UC8 Sign out]
     UC9[UC9 Reset a forgotten password]
     UC10[UC10 Tag a match live]
+    UC11[UC11 Manage users]
   end
-  admin --- UC1 & UC2 & UC3 & UC4 & UC5 & UC6 & UC7 & UC8 & UC9 & UC10
+  admin --- UC1 & UC2 & UC3 & UC4 & UC5 & UC6 & UC7 & UC8 & UC9 & UC10 & UC11
   viewer --- UC1 & UC7 & UC8 & UC9
 ```
 
@@ -432,6 +433,33 @@ flowchart TD
   H --> I[Paste Vimeo link, Attach video]
   I --> J[Line up: kick-off, both kick-offs, or on-screen clock + nudge]
   J --> K[In progress: review, add players, publish]
+```
+
+## UC11 Manage users (admin)
+
+The **Users** tab lists every Supabase Auth account with its role (Admin,
+Viewer, or None = no access), status (Active, or Invited, not signed in yet)
+and last sign-in. All changes go through the `admin-users` Edge Function,
+which checks the caller is an admin and holds the service-role key
+server-side. Until it is deployed the tab shows the setup steps.
+
+- **Invite:** email + role → Supabase sends an invite email linking back to
+  the site; the role is stored at once. The person arrives signed in and is
+  asked to choose a password. Existing emails are refused.
+- **Resend invite** for people who have not signed in yet.
+- **Edit:** change the role, send a password reset email, or remove the
+  account (confirmed; deletes the Auth user and its role, signs them out).
+- An admin cannot remove themself or take away their own admin role.
+
+```mermaid
+flowchart TD
+  A[Users tab] --> B{admin-users deployed?}
+  B -- No --> C[Setup steps]
+  B -- Yes --> D[List accounts]
+  D --> E[Invite email + role]
+  E --> F[Invite email sent]
+  F --> G[Person opens link, chooses password]
+  D --> H[Edit: role / reset email / remove]
 ```
 
 ## UC8 Sign out

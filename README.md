@@ -10,8 +10,10 @@ cloud video library. The videos remain hosted by Vimeo.
 - The `viewer` account can watch published videos and their tagged moments.
 - Supabase Auth signs users in. Row Level Security in the database enforces the
   roles; hiding editing controls in the page is not the security boundary.
-- The viewer account can be shared, but everyone using it shares one login and
-  activity is not attributable to an individual.
+- Admins manage accounts in the app's **Users** tab: invite people by email as
+  admin or viewer, change roles, resend invites, send password resets and
+  remove accounts. Give everyone their own login; a shared viewer login can
+  then be removed.
 
 ## Supabase setup
 
@@ -32,6 +34,10 @@ cloud video library. The videos remain hosted by Vimeo.
    repository name, such as `https://OWNER.github.io/REPOSITORY/`. The
    **Forgot password?** link on the sign-in card sends users back to this URL,
    so the reset email only works for URLs on that list.
+5. Deploy the `admin-users` Edge Function for the Users tab (see
+   `database/README.md`, "Users tab"). It runs on Supabase's servers and is
+   the only code that uses the service-role key, which Supabase provides to it
+   automatically; the key never goes in this repository or the web page.
 
 The cloud library starts empty. The old local JSON library in `data/` is not
 automatically imported; it is left on disk as local data.

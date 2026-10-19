@@ -56,11 +56,11 @@ export const NOBODY = { email: "norole@example.test", password: "x", id: "333333
  * Starts the app. `as` signs a user in before the page loads ("admin", "viewer" or null).
  * `tables` seeds the fake database. Returns helpers for driving the page.
  */
-export async function startApp({ as = "admin", tables = {}, duration = 5400, confirm = true, storage = {} } = {}) {
+export async function startApp({ as = "admin", tables = {}, duration = 5400, confirm = true, storage = {}, usersFunction = true, hash = "" } = {}) {
   const accounts = { [ADMIN.email]: ADMIN, [VIEWER.email]: VIEWER, [NOBODY.email]: NOBODY };
   const signedInAs = as === "admin" ? ADMIN.email : as === "viewer" ? VIEWER.email : null;
-  const supabase = createFakeSupabase({ accounts, tables, signedInAs });
-  const dom = new JSDOM(html, { runScripts: "outside-only", pretendToBeVisual: true, url: "http://localhost/touchline/" });
+  const supabase = createFakeSupabase({ accounts, tables, signedInAs, usersFunction });
+  const dom = new JSDOM(html, { runScripts: "outside-only", pretendToBeVisual: true, url: `http://localhost/touchline/${hash}` });
   const { window } = dom;
   window.TOUCHLINE_CONFIG = { url: "https://example.invalid", publishableKey: "test" };
   window.__supabase = supabase.client;

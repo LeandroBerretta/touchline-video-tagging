@@ -19,6 +19,7 @@
         <button class="tab-button active" type="button" data-tab="tag" aria-selected="true">Tag videos</button>
         <button class="tab-button" type="button" data-tab="watch" aria-selected="false">Watch videos</button>
         <button class="tab-button" type="button" data-tab="teams" aria-selected="false">Teams</button>
+        <button class="tab-button" type="button" data-tab="users" aria-selected="false">Users</button>
       </nav>
       <span id="signedInLabel" class="topbar-note"></span>
       <button id="signOutButton" class="button button-outline sign-out-button" type="button" hidden>Sign out</button>
@@ -389,6 +390,70 @@
         </div>
         <input id="liveTypeSearch" type="search" placeholder="Search, or type your own name for it" aria-label="Search event types" autocomplete="off">
         <div id="liveTypeList" class="live-type-list"></div>
+      </dialog>
+
+      <section id="usersPanel" class="tab-panel users-panel" aria-labelledby="usersHeading" hidden>
+        <section class="intro">
+          <p class="eyebrow">USERS</p>
+          <h1 id="usersHeading">Who can use Touchline</h1>
+          <p class="subtitle">Admins tag, publish and manage. Viewers watch published videos. Everyone signs in with their own email.</p>
+        </section>
+        <div id="usersNotice" class="notice" role="status" aria-live="polite"></div>
+        <div id="usersUnavailable" class="users-unavailable" hidden>
+          <p><strong>The Users page needs a one-time setup.</strong> Deploy the <code>admin-users</code> Edge Function in Supabase (Supabase dashboard › Edge Functions › Deploy a new function › Via editor, name it <code>admin-users</code>, paste <code>supabase/functions/admin-users/index.ts</code>, Deploy). Step by step: <code>database/README.md</code>. Then reload this page.</p>
+          <p id="usersUnavailableDetail" class="form-hint"></p>
+        </div>
+        <div id="usersContent" class="users-content">
+          <form id="inviteForm" class="invite-form">
+            <div class="invite-field invite-email">
+              <label for="inviteEmail">Invite someone</label>
+              <input id="inviteEmail" type="email" required placeholder="name@example.com" autocomplete="off">
+            </div>
+            <div class="invite-field">
+              <label for="inviteRole">Role</label>
+              <select id="inviteRole">
+                <option value="viewer">Viewer</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <button id="inviteButton" class="button button-primary" type="submit">Send invite</button>
+            <p class="form-hint invite-hint">They get an email with a link to choose their password. Supabase's built-in email sends only a few emails an hour, so invite people a few at a time.</p>
+          </form>
+          <div class="users-tools">
+            <input id="userSearch" type="search" placeholder="Search by email" aria-label="Search users by email" autocomplete="off">
+            <span id="usersSummary" class="users-summary"></span>
+            <button id="reloadUsersButton" class="link-button" type="button">Refresh</button>
+          </div>
+          <div id="usersList" class="users-list" role="table" aria-label="Users"></div>
+        </div>
+      </section>
+
+      <dialog id="userDialog" class="password-dialog user-dialog" aria-labelledby="userDialogEmail">
+        <form id="userForm" class="login-form" method="dialog">
+          <p class="eyebrow">EDIT USER</p>
+          <h2 id="userDialogEmail"></h2>
+          <p id="userDialogDetails" class="subtitle"></p>
+          <fieldset class="user-roles">
+            <legend>Role</legend>
+            <label class="align-option"><input type="radio" name="userRole" value="viewer"> <span><strong>Viewer</strong>Watches published videos, stats and playlists.</span></label>
+            <label class="align-option"><input type="radio" name="userRole" value="admin"> <span><strong>Admin</strong>Tags, publishes, manages teams and users.</span></label>
+          </fieldset>
+          <div class="user-section">
+            <strong>Password</strong>
+            <p class="form-hint">You never see passwords. Send a reset link and they choose a new one.</p>
+            <button id="userResetButton" class="button button-outline" type="button">Send password reset email</button>
+          </div>
+          <div class="user-section user-danger">
+            <strong>Remove access</strong>
+            <p class="form-hint">Deletes the account. They are signed out and can't sign in again unless invited. Videos, tags and playlists are not affected.</p>
+            <button id="userRemoveButton" class="delete-all" type="button">Remove user</button>
+          </div>
+          <p id="userDialogNotice" class="notice error" role="alert"></p>
+          <div class="dialog-actions">
+            <button id="userCancelButton" class="button button-outline" type="button">Cancel</button>
+            <button id="userSaveButton" class="button button-primary" type="submit">Save</button>
+          </div>
+        </form>
       </dialog>
 
       <section id="teamsPanel" class="tab-panel teams-panel" aria-labelledby="teamsHeading" hidden>

@@ -17,6 +17,32 @@ Run them in order from the Supabase SQL Editor:
    once no videos use it. Structure only: keep real squad lists out of the
    repository. Safe to rerun.
 
+## Users tab: the admin-users Edge Function (one-time setup)
+
+Creating and removing accounts needs Supabase's service-role key, which must
+never be in the web page. The Users tab therefore calls a small Supabase Edge
+Function, `supabase/functions/admin-users/index.ts`, which runs on Supabase's
+servers. Supabase gives every Edge Function the project URL and service-role
+key automatically, so nothing secret is copied anywhere. The function only
+acts for a signed-in user whose role is `admin`, and it never lets an admin
+remove their own account or take away their own admin role.
+
+1. In the Supabase dashboard open **Edge Functions** and choose **Deploy a new
+   function › Via editor**.
+2. Name it exactly `admin-users`.
+3. Replace the example code with the whole of
+   `supabase/functions/admin-users/index.ts` and choose **Deploy function**.
+   Leave **Verify JWT** on (the default): only signed-in users can call it.
+4. In **Authentication › URL Configuration**, make sure the site's address
+   (and `http://localhost:3000/` for local use) is in the redirect URLs: invite
+   and password-reset emails send people back there.
+5. Reload Touchline and open the **Users** tab.
+
+To change the invite email's wording, edit **Authentication › Emails › Invite
+user**. Supabase's built-in email service sends only a few emails per hour; for
+more, set up your own SMTP server under **Authentication › Emails › SMTP
+Settings**. After a code change to the function, paste and deploy it again.
+
 The viewer role can read published videos only. The admin role can read and
 manage all videos. Database row-level security enforces these permissions.
 

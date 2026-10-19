@@ -7,7 +7,7 @@ let idCounter = 0;
 const newId = () => `00000000-0000-4000-8000-${String(++idCounter).padStart(12, "0")}`;
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
-export function createFakeSupabase({ accounts = {}, tables = {}, signedInAs = null } = {}) {
+export function createFakeSupabase({ accounts = {}, tables = {}, signedInAs = null, usersFunction = true } = {}) {
   const db = {
     app_users: [],
     videos: [],
@@ -28,6 +28,85 @@ export function createFakeSupabase({ accounts = {}, tables = {}, signedInAs = nu
   if (signedInAs) session = { user: { id: accounts[signedInAs].id, email: signedInAs } };
 
   const roleOf = () => db.app_users.find((row) => row.user_id === session?.user.id)?.role || null;
+
+  // Supabase Auth's own user list, for the admin-users Edge Function stand-in below.
+  const authUsers = Object.entries(accounts).map(([email, account]) => ({
+    id: account.id,
+    email,
+    created_at: "2026-01-01T00:00:00Z",
+    invited_at: null,
+    email_confirmed_at: "2026-01-01T00:00:00Z",
+    last_sign_in_at: "2026-10-01T00:00:00Z",
+  }));
+  const describeUser = (user) => ({
+    id: user.id,
+    email: user.email,
+    role: db.app_users.find((row) => row.user_id === user.id)?.role || null,
+    createdAt: user.created_at,
+    invitedAt: user.invited_at,
+    confirmedAt: user.email_confirmed_at,
+    lastSignInAt: user.last_sign_in_at,
+  });
+  const sentEmails = [];
+  function functionError(status, message) {
+    return { data: null, error: { message: "Edge Function returned a non-2xx status code", context: { status, json: async () => ({ error: message }) } } };
+  }
+  // Mirrors supabase/functions/admin-users/index.ts: only signed-in admins, no removing or demoting yourself.
+  function adminUsers(body) {
+    if (!session) return functionError(401, "Your session has expired. Sign out and sign in again.");
+    if (roleOf() !== "admin") return functionError(403, "Only admins can manage users.");
+    const find = (id) => authUsers.find((user) => user.id === id);
+    switch (body.action) {
+      case "list":
+        return { data: { users: authUsers.map(describeUser) }, error: null };
+      case "invite": {
+        const email = String(body.email || "").trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return functionError(400, "Enter a valid email address.");
+        if (!["admin", "viewer"].includes(body.role)) return functionError(400, "Choose Admin or Viewer.");
+        if (authUsers.some((user) => user.email === email)) return functionError(409, `${email} already has an account. Find it in the list to change its role.`);
+        const user = { id: newId(), email, created_at: new Date().toISOString(), invited_at: new Date().toISOString(), email_confirmed_at: null, last_sign_in_at: null };
+        authUsers.push(user);
+        db.app_users.push({ user_id: user.id, role: body.role });
+        sentEmails.push(["invite", email, body.redirectTo]);
+        return { data: { user: describeUser(user) }, error: null };
+      }
+      case "resend": {
+        const user = find(body.userId);
+        if (!user) return functionError(404, "That user no longer exists.");
+        if (user.email_confirmed_at || user.last_sign_in_at) return functionError(409, `${user.email} has already signed in. Send a password reset instead.`);
+        sentEmails.push(["invite", user.email, body.redirectTo]);
+        return { data: { ok: true }, error: null };
+      }
+      case "setRole": {
+        if (!["admin", "viewer"].includes(body.role)) return functionError(400, "Choose Admin or Viewer.");
+        if (body.userId === session.user.id && body.role !== "admin") return functionError(400, "You can't take away your own admin role. Ask another admin to do it.");
+        const user = find(body.userId);
+        if (!user) return functionError(404, "That user no longer exists.");
+        const row = db.app_users.find((item) => item.user_id === user.id);
+        if (row) row.role = body.role;
+        else db.app_users.push({ user_id: user.id, role: body.role });
+        return { data: { user: describeUser(user) }, error: null };
+      }
+      case "remove": {
+        if (body.userId === session.user.id) return functionError(400, "You can't remove your own account. Ask another admin to do it.");
+        const index = authUsers.findIndex((user) => user.id === body.userId);
+        if (index >= 0) authUsers.splice(index, 1);
+        db.app_users = db.app_users.filter((row) => row.user_id !== body.userId);
+        return { data: { ok: true }, error: null };
+      }
+      default:
+        return functionError(400, "Unknown request.");
+    }
+  }
+  const functions = {
+    async invoke(name, { body } = {}) {
+      calls.push(["functions", name, clone(body ?? null)]);
+      if (name !== "admin-users" || !usersFunction) {
+        return { data: null, error: { message: "Edge Function returned a non-2xx status code", context: { status: 404, json: async () => ({ message: "Requested function was not found" }) } } };
+      }
+      return adminUsers(body || {});
+    },
+  };
 
   // What the signed-in user may read, like the row-level security policies.
   function visible(table, rows) {
@@ -74,6 +153,7 @@ export function createFakeSupabase({ accounts = {}, tables = {}, signedInAs = nu
     },
     async resetPasswordForEmail(email, options) {
       calls.push(["resetPasswordForEmail", email, options]);
+      sentEmails.push(["reset", email, options?.redirectTo]);
       return { data: {}, error: null };
     },
     async updateUser(changes) {
@@ -194,9 +274,11 @@ export function createFakeSupabase({ accounts = {}, tables = {}, signedInAs = nu
   }
 
   return {
-    client: { auth, from: (table) => new Query(table) },
+    client: { auth, from: (table) => new Query(table), functions },
     db,
     calls,
+    authUsers,
+    sentEmails,
     /** Make the next matching call fail, e.g. fail("videos", "upsert", "Failed to fetch"). */
     fail(table, op, message = "Failed to fetch") {
       failures.push({ table, op, error: { message } });

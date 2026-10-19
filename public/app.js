@@ -2,6 +2,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
 const $ = (selector) => document.querySelector(selector);
 const config = window.TOUCHLINE_CONFIG;
+// An invite link signs the new person in with "type=invite" in the address; read it before Supabase
+// tidies the address, so they can be asked to choose a password.
+const arrivedFromInvite = /(?:^|[#&])type=invite(?:&|$)/.test(window.location.hash);
 const supabase = config?.url && config?.publishableKey
   ? createClient(config.url, config.publishableKey)
   : null;
@@ -148,6 +151,12 @@ const state = {
   noVideo: false,
   // The Pass sequence being counted in the Tag screen (P adds a pass, L ends it).
   passChainId: null,
+  // Users tab: accounts from the admin-users Edge Function.
+  users: [],
+  usersAvailable: true,
+  usersQuery: "",
+  editingUserId: "",
+  invitePrompted: false,
 };
 
 function showNotice(selector, message, kind = "", action = null) {
@@ -284,6 +293,8 @@ function setTab(tab) {
   $("#watchPanel").hidden = tab !== "watch";
   $("#teamsPanel").hidden = tab !== "teams";
   $("#livePanel").hidden = tab !== "live";
+  $("#usersPanel").hidden = tab !== "users";
+  if (tab === "users") loadUsers();
   document.body.classList.toggle("live-open", tab === "live");
   if (tab === "teams") renderTeams();
 }
@@ -3816,6 +3827,9 @@ function showSignedOut() {
   state.liveTicker = null;
   state.live = null;
   setNoVideo(false);
+  state.users = [];
+  state.editingUserId = "";
+  $("#usersPanel").hidden = true;
   releaseScreen();
   document.body.classList.remove("live-open");
   $("#livePanel").hidden = true;
@@ -3881,6 +3895,10 @@ async function activateSession(session) {
   }
   setTab(state.role === "admin" ? "tag" : "watch");
   if (state.role === "admin") notify("Signed in. Your cloud video library is ready.");
+  if (arrivedFromInvite && !state.invitePrompted) {
+    state.invitePrompted = true;
+    openPasswordDialog(true);
+  }
   if (state.role === "admin" && restoreLive()) {
     renderLibrary();
     if (liveRunning()) openLive();
@@ -3888,8 +3906,9 @@ async function activateSession(session) {
   await openLinkedPlaylist();
 }
 
-function openPasswordDialog() {
+function openPasswordDialog(welcome = false) {
   const dialog = $("#passwordDialog");
+  $("#passwordHeading").textContent = welcome ? "Welcome to Touchline. Choose your password" : "Choose a new password";
   $("#passwordNotice").textContent = "";
   if (!dialog.open) dialog.showModal();
   $("#newPassword").focus();
@@ -4381,6 +4400,294 @@ window.addEventListener("keyup", (event) => {
   state.shiftNumber = false;
   if (state.numberBuffer) assignShirtNumber();
 });
+
+// ---- Users (admins) ----
+// Accounts are created and removed by the admin-users Edge Function, which holds Supabase's
+// service-role key on the server; the page only sends the admin's own sign-in with each request.
+
+function notifyUsers(message, kind = "") {
+  showNotice("#usersNotice", message, kind);
+}
+
+function signInAddress() {
+  return `${window.location.origin}${window.location.pathname}`;
+}
+
+async function callUsersFunction(body) {
+  const { data, error } = await supabase.functions.invoke("admin-users", { body });
+  if (error) {
+    let message = error.message || "The request failed.";
+    const status = error.context?.status;
+    try {
+      const details = await error.context?.json?.();
+      if (details?.error) message = details.error;
+    } catch {
+      // Not JSON: keep the general message.
+    }
+    const failure = new Error(message);
+    // No function deployed (or not reachable at all) means the one-time setup is missing.
+    failure.unavailable = status === 404 || !error.context || /failed to send a request/i.test(error.message || "");
+    throw failure;
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+async function loadUsers() {
+  if (state.role !== "admin" || !supabase) return;
+  notifyUsers("Loading users…");
+  try {
+    const data = await callUsersFunction({ action: "list" });
+    state.users = data.users || [];
+    state.usersAvailable = true;
+    notifyUsers("");
+  } catch (error) {
+    if (error.unavailable) {
+      state.usersAvailable = false;
+      $("#usersUnavailableDetail").textContent = `Details: ${error.message}`;
+      notifyUsers("");
+    } else {
+      notifyUsers(`Could not load users: ${friendlyError(error)}`, "error");
+    }
+  }
+  renderUsers();
+}
+
+function userStatus(user) {
+  if (!user.role) return { text: "No access", pending: true };
+  if (user.confirmedAt || user.lastSignInAt) return { text: "Active", pending: false };
+  return { text: "Invited, not signed in yet", pending: true };
+}
+
+function shortDate(value) {
+  return value ? new Date(value).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "Never";
+}
+
+function renderUsers() {
+  $("#usersUnavailable").hidden = state.usersAvailable;
+  $("#usersContent").hidden = !state.usersAvailable;
+  if (!state.usersAvailable) return;
+  const me = state.sessionUserId;
+  const query = state.usersQuery.trim().toLowerCase();
+  const sorted = [...state.users].sort((first, second) =>
+    (first.id === me ? -1 : second.id === me ? 1 : 0)
+    || ((first.role === "admin" ? 0 : 1) - (second.role === "admin" ? 0 : 1))
+    || first.email.localeCompare(second.email));
+  const shown = sorted.filter((user) => !query || user.email.toLowerCase().includes(query));
+  const admins = state.users.filter((user) => user.role === "admin").length;
+  const viewers = state.users.filter((user) => user.role === "viewer").length;
+  $("#usersSummary").textContent = `${plural(state.users.length, "person")
+    .replace("persons", "people")} · ${plural(admins, "admin")} · ${plural(viewers, "viewer")}`;
+
+  const head = document.createElement("div");
+  head.className = "user-row user-head";
+  head.setAttribute("role", "row");
+  for (const name of ["EMAIL", "ROLE", "STATUS", "LAST SIGNED IN", ""]) {
+    const cell = document.createElement("span");
+    cell.setAttribute("role", "columnheader");
+    cell.textContent = name;
+    head.append(cell);
+  }
+  const rows = shown.map((user) => {
+    const row = document.createElement("div");
+    row.className = "user-row";
+    row.setAttribute("role", "row");
+    row.dataset.userId = user.id;
+    const email = document.createElement("span");
+    email.className = "user-email";
+    email.setAttribute("role", "cell");
+    email.title = user.email;
+    email.append(user.email);
+    if (user.id === me) {
+      const you = document.createElement("small");
+      you.textContent = " (you)";
+      email.append(you);
+    }
+    const role = document.createElement("span");
+    role.className = `user-role ${user.role || "none"}`;
+    role.setAttribute("role", "cell");
+    role.textContent = user.role === "admin" ? "Admin" : user.role === "viewer" ? "Viewer" : "None";
+    const statusInfo = userStatus(user);
+    const status = document.createElement("span");
+    status.className = "user-status";
+    status.classList.toggle("pending", statusInfo.pending);
+    status.setAttribute("role", "cell");
+    status.textContent = statusInfo.text;
+    const when = document.createElement("span");
+    when.className = "user-when";
+    when.setAttribute("role", "cell");
+    when.textContent = shortDate(user.lastSignInAt);
+    const actions = document.createElement("span");
+    actions.className = "user-actions";
+    actions.setAttribute("role", "cell");
+    if (user.id === me) {
+      const note = document.createElement("span");
+      note.className = "form-hint";
+      note.textContent = "You can't remove yourself";
+      actions.append(note);
+    } else {
+      if (user.role && !user.confirmedAt && !user.lastSignInAt) {
+        const resend = document.createElement("button");
+        resend.type = "button";
+        resend.className = "player-button";
+        resend.textContent = "Resend invite";
+        resend.setAttribute("aria-label", `Resend the invite to ${user.email}`);
+        resend.addEventListener("click", () => resendInvite(user, resend));
+        actions.append(resend);
+      }
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "player-button";
+      edit.textContent = "Edit";
+      edit.setAttribute("aria-label", `Edit ${user.email}`);
+      edit.addEventListener("click", () => openUserDialog(user.id));
+      actions.append(edit);
+    }
+    row.append(email, role, status, when, actions);
+    return row;
+  });
+  if (!rows.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = query ? "No users match that search." : "No users yet.";
+    $("#usersList").replaceChildren(head, empty);
+    return;
+  }
+  $("#usersList").replaceChildren(head, ...rows);
+}
+
+async function inviteUser(event) {
+  event.preventDefault();
+  const email = $("#inviteEmail").value.trim();
+  const role = $("#inviteRole").value;
+  if (!$("#inviteEmail").checkValidity() || !email) {
+    notifyUsers("Enter a valid email address.", "error");
+    $("#inviteEmail").focus();
+    return;
+  }
+  const button = $("#inviteButton");
+  button.disabled = true;
+  notifyUsers(`Sending an invite to ${email}…`);
+  try {
+    const data = await callUsersFunction({ action: "invite", email, role, redirectTo: signInAddress() });
+    state.users = [data.user, ...state.users.filter((user) => user.id !== data.user.id)];
+    $("#inviteEmail").value = "";
+    renderUsers();
+    notifyUsers(`Invite sent to ${email} as ${role === "admin" ? "an admin" : "a viewer"}. They'll get an email with a link to choose their password.`, "success");
+  } catch (error) {
+    notifyUsers(`Could not invite ${email}: ${friendlyError(error)}`, "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function resendInvite(user, button) {
+  button.disabled = true;
+  try {
+    await callUsersFunction({ action: "resend", userId: user.id, redirectTo: signInAddress() });
+    notifyUsers(`Invite sent again to ${user.email}.`, "success");
+  } catch (error) {
+    notifyUsers(`Could not resend the invite to ${user.email}: ${friendlyError(error)}`, "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function editingUser() {
+  return state.users.find((user) => user.id === state.editingUserId) || null;
+}
+
+function openUserDialog(userId) {
+  const user = state.users.find((item) => item.id === userId);
+  if (!user) return;
+  state.editingUserId = userId;
+  $("#userDialogEmail").textContent = user.email;
+  $("#userDialogDetails").textContent = `Joined ${shortDate(user.createdAt)} · last signed in ${shortDate(user.lastSignInAt)}`;
+  for (const input of document.querySelectorAll('input[name="userRole"]')) input.checked = input.value === user.role;
+  $("#userDialogNotice").textContent = "";
+  const dialog = $("#userDialog");
+  if (!dialog.open) dialog.showModal();
+}
+
+function closeUserDialog() {
+  state.editingUserId = "";
+  $("#userDialog").close();
+}
+
+async function saveUserRole(event) {
+  event.preventDefault();
+  const user = editingUser();
+  if (!user) return;
+  const role = document.querySelector('input[name="userRole"]:checked')?.value;
+  if (!role) {
+    $("#userDialogNotice").textContent = "Choose Admin or Viewer.";
+    return;
+  }
+  if (role === user.role) {
+    closeUserDialog();
+    return;
+  }
+  const button = $("#userSaveButton");
+  button.disabled = true;
+  try {
+    const data = await callUsersFunction({ action: "setRole", userId: user.id, role });
+    state.users = state.users.map((item) => (item.id === user.id ? data.user : item));
+    closeUserDialog();
+    renderUsers();
+    notifyUsers(`${user.email} is now ${role === "admin" ? "an admin" : "a viewer"}.`, "success");
+  } catch (error) {
+    $("#userDialogNotice").textContent = friendlyError(error);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function sendUserReset() {
+  const user = editingUser();
+  if (!user) return;
+  const button = $("#userResetButton");
+  button.disabled = true;
+  try {
+    const { error } = await supabase.auth.resetPasswordForEmail(user.email, { redirectTo: signInAddress() });
+    if (error) throw error;
+    closeUserDialog();
+    notifyUsers(`A password reset email is on its way to ${user.email}.`, "success");
+  } catch (error) {
+    $("#userDialogNotice").textContent = `Could not send the reset email: ${friendlyError(error)}`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function removeUser() {
+  const user = editingUser();
+  if (!user) return;
+  if (!window.confirm(`Remove ${user.email}? They are signed out and can't sign in again unless you invite them. Videos, tags and playlists are not affected.`)) return;
+  const button = $("#userRemoveButton");
+  button.disabled = true;
+  try {
+    await callUsersFunction({ action: "remove", userId: user.id });
+    state.users = state.users.filter((item) => item.id !== user.id);
+    closeUserDialog();
+    renderUsers();
+    notifyUsers(`${user.email} was removed.`, "success");
+  } catch (error) {
+    $("#userDialogNotice").textContent = friendlyError(error);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+$("#inviteForm").addEventListener("submit", inviteUser);
+$("#userSearch").addEventListener("input", () => {
+  state.usersQuery = $("#userSearch").value;
+  renderUsers();
+});
+$("#reloadUsersButton").addEventListener("click", loadUsers);
+$("#userForm").addEventListener("submit", saveUserRole);
+$("#userCancelButton").addEventListener("click", closeUserDialog);
+$("#userResetButton").addEventListener("click", sendUserReset);
+$("#userRemoveButton").addEventListener("click", removeUser);
 
 // ---- Live mode ----
 // Tag a match on the sideline as it happens, then attach the video later. Each live moment keeps the
