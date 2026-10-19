@@ -133,7 +133,7 @@ Use-case flow diagrams are in `docs/USE_CASE_FLOWS.md`.
 
 - Live mode (roadmap 12) shipped and pushed 2026-10-17; the first live game on 2026-10-18 went well.
   Its match ("October 18 - SFC vs Chaos", about 109 moments) is in the library under Waiting for video.
-- Built after that game (roadmap 14), on branch `live-followups`, NOT yet pushed to `main`:
+- Built after that game (roadmap 14), pushed to `main` 2026-10-19:
   - Open a Waiting for video match and edit its moments without a video (match time, autosave);
     attach the video later from the "No video yet" box (unsaved edits carried over).
   - Publish a live match without its video (Watch shows events and stats, "Video coming soon").
@@ -143,8 +143,8 @@ Use-case flow diagrams are in `docs/USE_CASE_FLOWS.md`.
   - Pass chain (Pass sequence with a `passCount`) in Live mode and in the Tag screen (P counts, L ends),
     a Passing section in Stats, and a Passes field on the moment.
   - 113 tests pass. Roadmap, use-case flows and the admin manual artifact are up to date.
-- Next step: the user says "push", then fast-forward `main` to `live-followups` and push (the pre-push
-  hook runs `npm test`).
+- Users tab (roadmap 15), pushed 2026-10-19: needs `database/005_users.sql` run and the `admin-users`
+  Edge Function deployed (see database/README.md).
 - Planned, not started: voice tagging in Live mode (roadmap 13), after more live games.
 
 ## Safety notes
