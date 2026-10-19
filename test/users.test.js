@@ -128,6 +128,7 @@ test("the Edge Function checks the caller is an admin and keeps the service key 
   assert.match(source, /Deno\.env\.get\("SUPABASE_SERVICE_ROLE_KEY"\)/);
   assert.match(source, /role !== "admin"\) return reply\(\{ error: "Only admins can manage users\." \}, 403\)/);
   assert.match(source, /userId === caller\.user\.id\) return reply/);
+  assert.match(source, /asCaller\.from\("app_users"\)/, "the role is read as the caller");
   const page = readFileSync(path.join(repoRoot, "public/app.js"), "utf8");
   assert.doesNotMatch(page, /service_role|SERVICE_ROLE/i);
 });
