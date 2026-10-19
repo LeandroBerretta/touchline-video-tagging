@@ -104,5 +104,6 @@ test("friendly errors for common Supabase messages", () => {
   assert.match(app.friendlyError({ message: "Failed to fetch" }), /Could not reach the server/);
   assert.match(app.friendlyError({ message: "new row violates row-level security policy" }), /permission/);
   assert.match(app.friendlyError({ message: 'duplicate key value violates unique constraint "teams_name_key"' }), /team with that name/);
+  assert.match(app.friendlyError({ message: "Reading roles: permission denied for table app_users" }), /005_users.sql/);
   assert.equal(app.friendlyError({ message: "Something else" }), "Something else");
 });

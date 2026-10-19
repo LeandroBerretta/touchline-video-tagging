@@ -85,7 +85,7 @@ test("the docs the team relies on exist", () => {
     assert.ok(existsSync(path.join(repoRoot, file)), `${file} is missing`);
   }
   const dbReadme = read("database/README.md");
-  for (const script of ["001_schema.sql", "002_assign_roles.sql", "003_playlists.sql", "004_teams.sql"]) {
+  for (const script of ["001_schema.sql", "002_assign_roles.sql", "003_playlists.sql", "004_teams.sql", "005_users.sql"]) {
     assert.ok(dbReadme.includes(script), `database/README.md doesn't mention ${script}`);
   }
 });

@@ -16,6 +16,8 @@ Run them in order from the Supabase SQL Editor:
    names and players, never staff. Admins can delete a team (and its squad)
    once no videos use it. Structure only: keep real squad lists out of the
    repository. Safe to rerun.
+5. `005_users.sql` lets the `admin-users` Edge Function (the Users tab) read
+   and set roles. Run it before using the Users tab. Safe to rerun.
 
 ## Users tab: the admin-users Edge Function (one-time setup)
 
@@ -27,16 +29,17 @@ key automatically, so nothing secret is copied anywhere. The function only
 acts for a signed-in user whose role is `admin`, and it never lets an admin
 remove their own account or take away their own admin role.
 
-1. In the Supabase dashboard open **Edge Functions** and choose **Deploy a new
+1. Run `database/005_users.sql` in the SQL Editor.
+2. In the Supabase dashboard open **Edge Functions** and choose **Deploy a new
    function › Via editor**.
-2. Name it exactly `admin-users`.
-3. Replace the example code with the whole of
+3. Name it exactly `admin-users`.
+4. Replace the example code with the whole of
    `supabase/functions/admin-users/index.ts` and choose **Deploy function**.
    Leave **Verify JWT** on (the default): only signed-in users can call it.
-4. In **Authentication › URL Configuration**, make sure the site's address
+5. In **Authentication › URL Configuration**, make sure the site's address
    (and `http://localhost:3000/` for local use) is in the redirect URLs: invite
    and password-reset emails send people back there.
-5. Reload Touchline and open the **Users** tab.
+6. Reload Touchline and open the **Users** tab.
 
 To change the invite email's wording, edit **Authentication › Emails › Invite
 user**. Supabase's built-in email service sends only a few emails per hour; for

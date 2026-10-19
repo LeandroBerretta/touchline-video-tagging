@@ -80,6 +80,7 @@ const errorMessages = [
   [/email not confirmed/i, "This email address has not been confirmed yet. Use the link in the confirmation email first."],
   [/failed to fetch|networkerror|load failed/i, "Could not reach the server. Check your internet connection and try again."],
   [/jwt expired|refresh token/i, "Your session has expired. Sign out and sign in again."],
+  [/permission denied for table app_users/i, "The Users tab needs a one-time database update: run database/005_users.sql in the Supabase SQL Editor."],
   [/row-level security|permission denied/i, "Your account does not have permission to do that."],
   [/rate limit|too many requests/i, "Too many attempts. Wait a minute and try again."],
   [/password should be at least/i, "That password is too short. Use at least 8 characters."],

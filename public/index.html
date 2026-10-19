@@ -400,7 +400,7 @@
         </section>
         <div id="usersNotice" class="notice" role="status" aria-live="polite"></div>
         <div id="usersUnavailable" class="users-unavailable" hidden>
-          <p><strong>The Users page needs a one-time setup.</strong> Deploy the <code>admin-users</code> Edge Function in Supabase (Supabase dashboard › Edge Functions › Deploy a new function › Via editor, name it <code>admin-users</code>, paste <code>supabase/functions/admin-users/index.ts</code>, Deploy). Step by step: <code>database/README.md</code>. Then reload this page.</p>
+          <p><strong>The Users page needs a one-time setup.</strong> Run <code>database/005_users.sql</code> in the Supabase SQL Editor, then deploy the <code>admin-users</code> Edge Function in Supabase (Supabase dashboard › Edge Functions › Deploy a new function › Via editor, name it <code>admin-users</code>, paste <code>supabase/functions/admin-users/index.ts</code>, Deploy). Step by step: <code>database/README.md</code>. Then reload this page.</p>
           <p id="usersUnavailableDetail" class="form-hint"></p>
         </div>
         <div id="usersContent" class="users-content">
