@@ -124,6 +124,7 @@ test("arriving from an invite link asks the new person to choose a password", as
 
 test("the Edge Function checks the caller is an admin and keeps the service key out of the page", () => {
   const source = readFileSync(path.join(repoRoot, "supabase/functions/admin-users/index.ts"), "utf8");
+  assert.match(source, /Deno\.env\.get\("SUPABASE_SECRET_KEYS"\)/);
   assert.match(source, /Deno\.env\.get\("SUPABASE_SERVICE_ROLE_KEY"\)/);
   assert.match(source, /role !== "admin"\) return reply\(\{ error: "Only admins can manage users\." \}, 403\)/);
   assert.match(source, /userId === caller\.user\.id\) return reply/);
