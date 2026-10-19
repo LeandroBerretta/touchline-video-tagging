@@ -385,10 +385,27 @@ the kick-off whistle. The camera can start at any time.
   waiting and retries; a reload mid-match goes straight back to it. Later sends
   only update name, team and moments, never the Vimeo link.
 - The screen is kept awake while a match runs, where the browser allows it.
+- **Pass chain**: the first tap saves a Pass sequence (`eventType`
+  `pass_sequence`, `passCount` 1) at that moment; **+1 pass** counts, **−1**
+  corrects, **Lost it** ends it, and so does any other event, Half-time or End
+  match. Stats show a Passing section (sequences, 3+, 5+, longest, average);
+  the Tag row has a Passes field to correct the count.
+  The Tag screen has the same chain for video tagging: **P** (or Pass chain)
+  marks the first pass with the mark offset, each further **P** adds a pass,
+  **L** (Lost it) or any other mark ends it.
+- Live moments are timed on the **match clock** (the half-time break left
+  out) until they are lined up with a video.
 
 After the game the match is in the library under **Waiting for video** (no
-Vimeo link). Opening it fills in the video form; paste the link and press
-**Attach video**. The video opens with the live moments, the link autosaves,
+Vimeo link). Opening it shows its moments in the Tag screen at match time,
+fully editable (types, players, notes, Done, delete, times), saved and
+autosaved as usual with no link; marking controls are hidden. A **No video
+yet** box where the player would be takes the Vimeo link. **Publish without video** there lets viewers see its
+events and stats straight away (nothing plays yet; Watch says the video is
+coming). A published match without a link stays in Published, marked "No video
+yet"; it opens the same way, and after lining up the admin re-publishes.
+**Attach video** in the No video yet box opens the video with the moments as they are
+(unsaved edits included), the link autosaves,
 and the **Line up the live moments** card opens under the video:
 
 | Method | Video time of a live moment |

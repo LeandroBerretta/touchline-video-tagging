@@ -576,3 +576,36 @@ body.live-open .workspace { width: min(100% - 32px, 520px); padding: 14px 0 28px
 .align-nudge .form-hint { margin: 0; }
 .align-nudge-value { min-width: 44px; text-align: center; font: 700 15px Consolas, monospace; }
 .align-preview { min-height: 20px; margin: 0 0 10px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+
+/* Live pass chain */
+.live-pass-start { width: 100%; min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border: 1px solid #3c5640; border-radius: 12px; color: var(--green); background: #151b17; cursor: pointer; font-size: 15px; font-weight: 700; touch-action: manipulation; }
+.live-pass-start small { color: var(--soft); font: 600 10px Consolas, monospace; }
+.live-pass-active { display: grid; grid-template-columns: 56px minmax(0, 1fr) 96px; gap: 8px; }
+.live-pass-active .player-button { min-height: 64px; }
+.live-pass-plus { min-height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 0; border-radius: 12px; color: #1a2515; background: var(--green); cursor: pointer; touch-action: manipulation; user-select: none; }
+.live-pass-plus span { font: 700 30px Consolas, monospace; line-height: 1; }
+.live-pass-plus small { font: 700 11px Consolas, monospace; }
+.live-pass-plus:active { transform: scale(.97); }
+.live-pass-stop { border: 1px solid var(--amber); border-radius: 12px; color: var(--amber); background: transparent; cursor: pointer; font-size: 15px; font-weight: 700; }
+.pass-count-field { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; }
+.pass-count-field input { width: 80px; padding: 8px 10px; }
+.watch-no-video { display: grid; min-height: 160px; place-items: center; padding: 24px; color: var(--muted); text-align: center; line-height: 1.5; }
+
+/* Pass chain in the Tag screen */
+.pass-chain { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.pass-chain-active { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.pass-chain-plus { min-height: 40px; gap: 6px; }
+.pass-chain-plus kbd { color: #1a2515; border-color: #1a251555; }
+.pass-chain-stop { border-color: var(--amber); color: var(--amber); }
+
+/* A live match without its video yet */
+.no-video-box { border: 1px dashed #6b5a33; border-radius: 10px; padding: 18px; background: #1d1a12; line-height: 1.5; }
+.no-video-box p { margin: 0 0 12px; color: var(--muted); font-size: 14px; }
+.no-video-box .eyebrow { margin-bottom: 6px; color: var(--amber); }
+.video-card.no-video .video-frame, .video-card.no-video .player-bar, .video-card.no-video .timeline { display: none !important; }
+/* Waiting for video entries: buttons under the entry, so its name has room */
+.waiting-section .saved-video-item { grid-template-columns: minmax(0, 1fr); }
+.waiting-section .saved-video-actions { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.tags-card.no-video .mark-controls, .tags-card.no-video #keysHelp, .tags-card.no-video .quick-bar, .tags-card.no-video .pass-chain, .tags-card.no-video .last-marked, .tags-card.no-video .tagging-options { display: none !important; }
+.no-video-box .url-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.no-video-box .url-controls input { flex: 1 1 260px; }

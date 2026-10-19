@@ -129,6 +129,24 @@ Use-case flow diagrams are in `docs/USE_CASE_FLOWS.md`.
 - Added "Forgot password?" with a set-password dialog, plain-language error messages, larger text and tap targets, a bottom notice bar on narrow screens, and the library below the video on phones.
 - Pinned `@supabase/supabase-js` to 2.45.4.
 
+## Live mode and follow-ups (2026-10-17 to 2026-10-19)
+
+- Live mode (roadmap 12) shipped and pushed 2026-10-17; the first live game on 2026-10-18 went well.
+  Its match ("October 18 - SFC vs Chaos", about 109 moments) is in the library under Waiting for video.
+- Built after that game (roadmap 14), on branch `live-followups`, NOT yet pushed to `main`:
+  - Open a Waiting for video match and edit its moments without a video (match time, autosave);
+    attach the video later from the "No video yet" box (unsaved edits carried over).
+  - Publish a live match without its video (Watch shows events and stats, "Video coming soon").
+  - Event types: removed Assist, Carry, Dribble, Tackle, Interception, Block (old moments keep their
+    names); added Break away, Break away pass, Through ball, Chance created, Switch of play,
+    Counter-attack, Ball won, Ball lost, Great play, Coaching point, Pass sequence.
+  - Pass chain (Pass sequence with a `passCount`) in Live mode and in the Tag screen (P counts, L ends),
+    a Passing section in Stats, and a Passes field on the moment.
+  - 113 tests pass. Roadmap, use-case flows and the admin manual artifact are up to date.
+- Next step: the user says "push", then fast-forward `main` to `live-followups` and push (the pre-push
+  hook runs `npm test`).
+- Planned, not started: voice tagging in Live mode (roadmap 13), after more live games.
+
 ## Safety notes
 
 - Never read or print `public/config.js`.

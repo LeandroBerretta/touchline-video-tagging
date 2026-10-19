@@ -259,7 +259,7 @@ function liveRow() {
   });
 }
 
-test("Waiting for video: paste the link, Attach video opens it with the live moments and saves the link", async () => {
+test("Waiting for video: open it to edit the moments without a video, then attach the video and keep the edits", async () => {
   const tables = standardTables();
   tables.videos.push(liveRow());
   const page = await livePage({ tables });
@@ -267,23 +267,65 @@ test("Waiting for video: paste the link, Attach video opens it with the live mom
   assert.match(page.text("#waitingList"), /Tagged live · 2 moments · No video yet/);
   assert.doesNotMatch(page.text("#queueList"), /Live Rivals/);
   await page.click(page.$$("#waitingList .saved-video").at(0));
-  assert.equal(page.text("#openVideoButton"), "Attach video");
-  assert.equal(page.$("#videoName").value, "Test FC vs Live Rivals");
-  assert.equal(page.$("#queueVideoButton").hidden, true);
-  assert.match(page.text("#notice"), /Paste the Vimeo link/);
+  await page.settle(6);
 
-  page.$("#videoUrl").value = "https://vimeo.com/444444444";
-  page.$("#videoForm").dispatchEvent(new page.window.Event("submit", { bubbles: true, cancelable: true }));
-  await page.settle(12);
+  // The moments open for editing, at match time, with an Attach video box where the player would be.
   assert.equal(page.state.activeRecord.id, LIVE_ID);
-  assert.equal(page.state.tags.length, 5);
+  assert.equal(page.state.noVideo, true);
+  assert.equal(page.$("#noVideoBox").hidden, false);
+  assert.equal(page.$("#tagsCard").hidden, false);
+  assert.equal(page.$("#liveAlign").hidden, true);
+  assert.match(page.text("#videoHeaderMeta"), /IN PROGRESS · NO VIDEO YET/);
+  assert.equal(page.$("#queueVideoButton").hidden, true);
+  assert.equal(page.state.tags.find((tag) => tag.id === "g").timestampSeconds, 2400, "second half at match time");
+  assert.ok(page.$("#markMomentButton").disabled, "nothing to mark against without a video");
+  assert.ok(page.$("#tagsCard").classList.contains("no-video"), "marking controls are hidden");
+  const order = page.texts("#tagList .match-divider, #tagList .tag-summary-main");
+  assert.ok(order.indexOf("2nd half") < order.findIndex((text) => text.startsWith("Kick-off")), "the second-half kick-off opens the 2nd half");
+
+  // Edit: give the goal a scorer and change the corner's type, then save.
+  page.app.updateTag("g", { playerIds: [PLAYERS[1].id] });
+  page.app.updateTag("c", { eventType: "free_kick" });
+  page.app.renderTags();
+  assert.match(page.text("#tagList"), /Free kick/);
+  assert.ok(page.state.autosaveTimer, "edits save automatically");
+  await page.click("#saveVideoButton");
+  let row = page.db.videos.find((video) => video.id === LIVE_ID);
+  assert.equal(row.vimeo_url, "");
+  assert.equal(row.tags.find((tag) => tag.id === "c").eventType, "free_kick");
+  assert.deepEqual(row.tags.find((tag) => tag.id === "g").playerIds, [PLAYERS[1].id]);
+  assert.equal(row.tags.find((tag) => tag.id === "g").liveAt, at(50));
+
+  // Attach the video: an unsaved edit comes along, and the line-up card opens.
+  page.app.updateTag("g", { note: "Great finish" });
+  await page.type("#attachUrl", "https://vimeo.com/444444444");
+  await page.click("#attachButton");
+  await page.settle(12);
+  assert.equal(page.state.noVideo, false);
+  assert.equal(page.$("#noVideoBox").hidden, true);
+  assert.equal(page.state.tags.find((tag) => tag.id === "g").note, "Great finish");
   assert.equal(page.state.isDirty, true, "the new link is an unsaved change");
   assert.equal(page.$("#liveAlign").hidden, false);
   assert.equal(page.$("#liveAlign").open, true, "not lined up yet, so the card starts open");
   await page.app.autosave();
-  assert.equal(page.db.videos.find((video) => video.id === LIVE_ID).vimeo_url, "https://vimeo.com/444444444");
+  row = page.db.videos.find((video) => video.id === LIVE_ID);
+  assert.equal(row.vimeo_url, "https://vimeo.com/444444444");
+  assert.equal(row.tags.find((tag) => tag.id === "g").note, "Great finish");
   assert.equal(page.$("#waitingSection").hidden, true);
   assert.match(page.text("#inProgressList"), /Test FC vs Live Rivals/);
+  page.close();
+});
+
+test("an invalid link in Attach video is refused and the moments stay open", async () => {
+  const tables = standardTables();
+  tables.videos.push(liveRow());
+  const page = await livePage({ tables });
+  await page.click(page.$$("#waitingList .saved-video").at(0));
+  await page.type("#attachUrl", "https://youtube.com/watch?v=1");
+  await page.click("#attachButton");
+  assert.match(page.text("#notice"), /Vimeo/);
+  assert.equal(page.state.noVideo, true);
+  assert.equal(page.state.activeRecord.id, LIVE_ID);
   page.close();
 });
 
@@ -353,4 +395,114 @@ test("viewers never get Live mode", async () => {
   page.app.openLive();
   assert.equal(page.$("#livePanel").hidden, true);
   page.close();
+});
+
+test("pass chain: the first tap starts a Pass sequence, each tap counts, Lost it or any other event ends it", async () => {
+  const page = await livePage();
+  await startMatch(page);
+  page.setClock(at(8, 20));
+  await page.click("#livePassStart");
+  assert.equal(page.$("#livePassActive").hidden, false);
+  assert.equal(page.text("#livePassCount"), "1");
+  page.setClock(at(8, 30));
+  for (let i = 0; i < 4; i++) await page.click("#livePassPlus");
+  await page.click("#livePassMinus");
+  assert.equal(page.text("#livePassCount"), "4");
+  let [chain] = userTags(page);
+  assert.equal(chain.eventType, "pass_sequence");
+  assert.equal(chain.passCount, 4);
+  assert.equal(chain.timestampSeconds, 500, "timed at the first pass");
+  assert.match(page.text("#liveLast"), /Pass sequence · 4 passes/);
+  await page.click("#livePassStop");
+  assert.equal(page.$("#livePassActive").hidden, true);
+  assert.equal(page.$("#livePassStart").hidden, false);
+  assert.match(page.text("#liveNotice"), /4 passes/);
+
+  await page.click("#livePassStart");
+  await page.click("#livePassPlus");
+  await page.click(typeButton(page, "Shot on target"));
+  assert.equal(page.state.live.chainId, null, "a shot ends the chain");
+  assert.equal(userTags(page)[1].passCount, 2);
+  await page.app.syncLive();
+  const saved = page.db.videos.find((video) => video.id === page.state.live.id).tags;
+  assert.deepEqual(saved.filter((tag) => tag.eventType === "pass_sequence").map((tag) => tag.passCount), [4, 2]);
+  assert.equal(saved.find((tag) => tag.eventType === "shot_on_target").passCount, undefined);
+});
+
+test("Publish without video: viewers see the events at match time and the stats, with nothing to play yet", async () => {
+  const tables = standardTables();
+  tables.videos.push(liveRow());
+  const page = await livePage({ tables });
+  const publish = page.$$("#waitingList .remove-video").find((button) => button.textContent === "Publish without video");
+  await page.click(publish);
+  await page.settle(8);
+  const row = page.db.videos.find((video) => video.id === LIVE_ID);
+  assert.equal(row.status, "published");
+  assert.equal(row.vimeo_url, "");
+  const time = (id) => row.tags.find((tag) => tag.id === id).timestampSeconds;
+  assert.equal(time("c"), 600);
+  assert.equal(time("h"), 1800);
+  assert.equal(time("r"), 1800, "the second half carries on from half-time, the break left out");
+  assert.equal(time("g"), 2400);
+  assert.equal(row.tags.find((tag) => tag.id === "g").liveAt, at(50), "the live times are kept for lining up later");
+  assert.match(page.text("#publishedList"), /Test FC vs Live Rivals.*No video yet/);
+
+  const viewer = await openPage({ as: "viewer", tables: { ...standardTables(), videos: [...standardTables().videos, row] } });
+  assert.match(viewer.text("#watchVideoList"), /Test FC vs Live Rivals.*Video coming soon/);
+  await viewer.openInWatch("Test FC vs Live Rivals");
+  assert.match(viewer.text("#watchVideoFrame"), /Video coming soon/);
+  assert.equal(viewer.vimeo.players?.length ?? 0, 0, "no Vimeo player is opened");
+  assert.match(viewer.text("#watchGroups"), /Corner/);
+  assert.ok(viewer.$$(".watch-group-play").every((button) => button.disabled));
+  await viewer.click("#watchViewStatsButton");
+  assert.match(viewer.text("#watchStatsView"), /Split at Half-time \(30:00\)/);
+
+  // The admin attaches the video later from the Published list.
+  await page.click(page.$$("#publishedList .saved-video").find((button) => /Live Rivals/.test(button.textContent)));
+  await page.settle(6);
+  assert.equal(page.state.noVideo, true);
+  assert.match(page.text("#videoHeaderMeta"), /PUBLISHED · NO VIDEO YET/);
+  assert.equal(page.$("#noVideoBox").hidden, false);
+});
+
+test("retired event types keep their names on old moments but are no longer offered", async () => {
+  const page = await openPage({ tables: standardTables({ inProgressTags: [moment("old", 300, "tackle")] }) });
+  assert.equal(page.app.tagEventLabel({ eventType: "tackle" }), "Tackle");
+  for (const value of ["assist", "carry", "dribble", "tackle", "interception", "block"]) {
+    assert.ok(!page.app.eventTypes.some(([type]) => type === value), `${value} is still offered`);
+  }
+  for (const value of ["break_away", "break_away_pass", "through_ball", "chance_created", "switch_of_play", "counter_attack", "ball_won", "ball_lost", "great_play", "coaching_point", "pass_sequence"]) {
+    assert.ok(page.app.eventTypes.some(([type]) => type === value), `${value} is missing`);
+  }
+  await page.openFromLibrary("Test FC vs Rivals");
+  assert.match(page.text("#tagList"), /Tackle/);
+  const select = page.$('[data-tag-id="old"] .event-type');
+  assert.equal(select.value, "tackle");
+  assert.match(select.selectedOptions[0].textContent, /no longer offered/);
+});
+
+test("Stats show a Passing section for pass sequences, and the tag row edits the count", async () => {
+  const tags = [
+    moment("s", 10, "start_of_game"),
+    moment("p1", 100, "pass_sequence", { passCount: 3 }),
+    moment("p2", 200, "pass_sequence", { passCount: 7 }),
+    moment("p3", 300, "pass_sequence", { passCount: 1 }),
+  ];
+  const page = await openPage({ tables: standardTables({ publishedTags: tags, inProgressTags: tags }) });
+  await page.tab("watch");
+  await page.openInWatch("Test FC vs Okanagan");
+  await page.click("#watchViewStatsButton");
+  const stats = page.text("#watchStatsView");
+  assert.match(stats, /Passing/);
+  assert.match(stats, /11 passes in 3 sequences\. Longest: 7 passes\. Average: 3\.7/);
+  assert.match(stats, /3 or more passes\s*2/);
+  assert.match(stats, /5 or more passes\s*1/);
+
+  await page.tab("tag");
+  await page.openFromLibrary("Test FC vs Rivals");
+  assert.match(page.text('[data-tag-id="p2"] .tag-summary-main'), /Pass sequence · 7 passes/);
+  const input = page.$('[data-tag-id="p2"] .pass-count-field input');
+  await page.type('[data-tag-id="p2"] .pass-count-field input', "8");
+  assert.equal(page.state.tags.find((tag) => tag.id === "p2").passCount, 8);
+  assert.ok(input);
 });

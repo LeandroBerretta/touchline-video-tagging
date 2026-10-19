@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { startApp, settle, plain } from "./helpers/app.js";
-import { standardTables, PLAYERS } from "./fixtures.js";
+import { standardTables, PLAYERS, IN_PROGRESS_ID } from "./fixtures.js";
 
 const rows = (page) => page.texts("#tagList .tag-summary-main");
 
@@ -175,8 +175,8 @@ test("editing several To do moments at once: set type, then Done", async () => {
   selectAll.dispatchEvent(new page.window.Event("change", { bubbles: true }));
   await settle();
   const typeSelect = page.$$(".bulk-bar select")[0];
-  await page.choose(typeSelect, "tackle");
-  assert.ok(todo.every((id) => page.state.tags.find((tag) => tag.id === id).eventType === "tackle"));
+  await page.choose(typeSelect, "ball_won");
+  assert.ok(todo.every((id) => page.state.tags.find((tag) => tag.id === id).eventType === "ball_won"));
   await page.click(".bulk-bar .done-button");
   assert.ok(todo.every((id) => page.state.tags.find((tag) => tag.id === id).done));
   page.close();
@@ -268,15 +268,15 @@ test("tagging options: your own quick types keep the order you tick, and pause-o
   const page = await startApp({ tables: standardTables() });
   await openRivals(page);
   const box = (label) => page.$$(".quick-type-choice").find((choice) => choice.textContent.trim() === label).querySelector("input");
-  const tackle = box("Tackle");
+  const tackle = box("Ball won");
   tackle.checked = true;
   tackle.dispatchEvent(new page.window.Event("change", { bubbles: true }));
   await settle();
-  assert.equal(page.state.quickTypes.at(-1), "tackle");
+  assert.equal(page.state.quickTypes.at(-1), "ball_won");
   assert.equal(page.state.quickTypes[0], "throw_in", "existing keys keep their place");
-  assert.deepEqual(JSON.parse(page.window.localStorage.getItem("touchline.quickTypes")).at(-1), "tackle");
+  assert.deepEqual(JSON.parse(page.window.localStorage.getItem("touchline.quickTypes")).at(-1), "ball_won");
   await page.press("u");
-  assert.equal(page.state.tags.find((tag) => tag.id === page.state.lastMarkedId).eventType, "tackle");
+  assert.equal(page.state.tags.find((tag) => tag.id === page.state.lastMarkedId).eventType, "ball_won");
 
   page.$("#pauseOnMark").checked = true;
   page.vimeo.current.paused = false;
@@ -293,5 +293,50 @@ test("zoom: + zooms in, the Reset button returns to the whole picture", async ()
   assert.match(page.$("#videoFrame iframe").style.transform, /scale\(1\.5\)/);
   await page.click("#tagZoomReset");
   assert.equal(page.text("#tagZoomLevel"), "100%");
+  page.close();
+});
+
+test("pass chain while tagging a video: P starts and counts, L ends, another mark ends it, Backspace removes it", async () => {
+  const page = await startApp({ tables: standardTables() });
+  await openRivals(page);
+  assert.equal(page.$("#passChainButton").disabled, false);
+  await page.press("p");
+  const chainId = page.state.passChainId;
+  let chain = page.state.tags.find((tag) => tag.id === chainId);
+  assert.equal(chain.eventType, "pass_sequence");
+  assert.equal(chain.passCount, 1);
+  assert.equal(chain.timestampSeconds, 997, "the mark offset applies to the first pass");
+  assert.equal(chain.done, true);
+  assert.equal(page.$("#passChainActive").hidden, false);
+  page.vimeo.current.time = 1010;
+  await page.press("p");
+  await page.press("p");
+  await page.click("#passChainPlus");
+  await page.click("#passChainMinus");
+  chain = page.state.tags.find((tag) => tag.id === chainId);
+  assert.equal(chain.passCount, 3);
+  assert.equal(chain.timestampSeconds, 997, "counting passes doesn't move the moment");
+  assert.equal(page.text("#passChainCount"), "3");
+  assert.match(page.text("#lastMarkedText"), /Pass sequence \(3 passes\)/);
+  await page.press("l");
+  assert.equal(page.state.passChainId, null);
+  assert.equal(page.$("#passChainButton").hidden, false);
+  assert.match(page.text("#notice"), /3 passes/);
+
+  await page.press("p");
+  await page.press("p");
+  await page.press("t");
+  assert.equal(page.state.passChainId, null, "marking a shot ends the chain");
+  assert.equal(page.state.tags.filter((tag) => tag.eventType === "pass_sequence").map((tag) => tag.passCount).join(), "3,2");
+
+  await page.press("p");
+  await page.press("Backspace");
+  assert.equal(page.state.passChainId, null);
+  assert.equal(page.$("#passChainButton").hidden, false);
+  assert.equal(page.state.tags.filter((tag) => tag.eventType === "pass_sequence").length, 2);
+  page.vimeo.current.time = 1100;
+  await page.click("#saveVideoButton");
+  const saved = page.db.videos.find((video) => video.id === IN_PROGRESS_ID).tags.filter((tag) => tag.eventType === "pass_sequence");
+  assert.deepEqual(saved.map((tag) => tag.passCount), [3, 2]);
   page.close();
 });

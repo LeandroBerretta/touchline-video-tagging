@@ -157,6 +157,14 @@
               <div id="notice" class="notice" role="status" aria-live="polite"></div>
 
               <div id="videoCard" class="video-card" hidden>
+                <div id="noVideoBox" class="no-video-box" hidden>
+                  <p class="eyebrow">NO VIDEO YET</p>
+                  <p>These moments were tagged live and sit at match time. Edit them now; when the video is on Vimeo, paste its link here. Touchline then helps you line the moments up with it.</p>
+                  <div class="url-controls">
+                    <input id="attachUrl" type="url" placeholder="https://vimeo.com/123456789" autocomplete="url" aria-label="Vimeo link for this match">
+                    <button id="attachButton" class="button button-primary" type="button">Attach video</button>
+                  </div>
+                </div>
                 <div id="videoFrame" class="video-frame"></div>
                 <div class="player-bar" role="group" aria-label="Video controls">
                   <button id="rewindButton" class="player-button" type="button" aria-label="Back 5 seconds" title="Back 5 seconds (←)" disabled>« 5 s</button>
@@ -256,6 +264,8 @@
                   <dt><kbd>Enter</kbd></dt><dd>Mark a moment</dd>
                   <dt>Letter on a quick button</dt><dd>Mark with that type</dd>
                   <dt><kbd>Shift</kbd> + number</dt><dd>Add that shirt number to the last mark</dd>
+                  <dt><kbd>P</kbd></dt><dd>Start a pass chain on the first pass, then add each pass</dd>
+                  <dt><kbd>L</kbd></dt><dd>End the pass chain (ball lost)</dd>
                   <dt><kbd>Backspace</kbd></dt><dd>Undo the last mark</dd>
                   <dt><kbd>Space</kbd></dt><dd>Play or pause</dd>
                   <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Back or forward 5 seconds</dd>
@@ -265,6 +275,14 @@
                 <p class="form-hint">Keys pause after you click inside the video picture. Click anywhere outside it to get them back.</p>
               </div>
               <div id="quickBar" class="quick-bar" role="group" aria-label="Mark a moment with its event type"></div>
+              <div class="pass-chain" role="group" aria-label="Count a passing sequence">
+                <button id="passChainButton" class="quick-key pass-chain-start" type="button" disabled><kbd>P</kbd> Pass chain</button>
+                <span id="passChainActive" class="pass-chain-active" hidden>
+                  <button id="passChainMinus" class="player-button" type="button" aria-label="One pass fewer">−1</button>
+                  <button id="passChainPlus" class="button button-primary pass-chain-plus" type="button"><kbd>P</kbd> +1 pass · <span id="passChainCount">1</span></button>
+                  <button id="passChainStop" class="player-button pass-chain-stop" type="button"><kbd>L</kbd> Lost it</button>
+                </span>
+              </div>
               <div id="lastMarked" class="last-marked" hidden>
                 <span id="lastMarkedText" class="last-marked-text" aria-live="polite"></span>
                 <span id="lastMarkedNumber" class="last-marked-number" hidden></span>
@@ -327,6 +345,14 @@
           </div>
           <p class="live-label">1 · WHAT HAPPENED</p>
           <div id="liveTypes" class="live-types" role="group" aria-label="Tag what happened"></div>
+          <div class="live-pass">
+            <button id="livePassStart" class="live-pass-start" type="button">Pass chain <small>tap on the first pass, then each pass</small></button>
+            <div id="livePassActive" class="live-pass-active" hidden>
+              <button id="livePassMinus" class="player-button" type="button" aria-label="One pass fewer">−1</button>
+              <button id="livePassPlus" class="live-pass-plus" type="button" aria-label="Add a pass"><span id="livePassCount">1</span><small>+1 pass</small></button>
+              <button id="livePassStop" class="live-pass-stop" type="button">Lost it</button>
+            </div>
+          </div>
           <p id="livePlayersLabel" class="live-label">2 · WHO · OPTIONAL, SKIP IF UNSURE</p>
           <div id="livePlayers" class="live-players" role="group" aria-label="Add players to the last event"></div>
           <div id="liveLast" class="live-last" hidden>

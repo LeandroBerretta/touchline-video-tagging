@@ -9,14 +9,18 @@ const eventTypes = [
   ["", "Choose event type…"],
   ["start_of_game", "Start of game"],
   ["goal", "Goal"],
-  ["assist", "Assist"],
   ["shot_on_target", "Shot on target"],
   ["shot_off_target", "Shot off target"],
+  ["chance_created", "Chance created"],
   ["save", "Save"],
   ["pass", "Pass"],
+  ["pass_sequence", "Pass sequence"],
+  ["through_ball", "Through ball"],
+  ["switch_of_play", "Switch of play"],
   ["cross", "Cross"],
-  ["carry", "Carry"],
-  ["dribble", "Dribble"],
+  ["break_away", "Break away"],
+  ["break_away_pass", "Break away pass"],
+  ["counter_attack", "Counter-attack"],
   ["header", "Header"],
   ["throw_in", "Throw-in"],
   ["goal_kick", "Goal kick"],
@@ -29,14 +33,24 @@ const eventTypes = [
   ["free_kick", "Free kick"],
   ["corner", "Corner"],
   ["offside", "Offside"],
-  ["tackle", "Tackle"],
-  ["interception", "Interception"],
+  ["ball_won", "Ball won"],
+  ["ball_lost", "Ball lost"],
   ["clearance", "Clearance"],
-  ["block", "Block"],
   ["substitution", "Substitution"],
+  ["great_play", "Great play"],
+  ["coaching_point", "Coaching point"],
   ["half_time", "Half-time"],
   ["end_of_game", "End of game"],
   ["other", "Other"],
+];
+// Types no longer offered. Moments that already use one keep its name and can be changed to another type.
+const retiredEventTypes = [
+  ["assist", "Assist"],
+  ["carry", "Carry"],
+  ["dribble", "Dribble"],
+  ["tackle", "Tackle"],
+  ["interception", "Interception"],
+  ["block", "Block"],
 ];
 // Markers frame the match (halves for stats) and are not counted as events.
 const markerTypes = new Set(["start_of_game", "half_time", "end_of_game"]);
@@ -129,8 +143,11 @@ const state = {
   liveTypeTargetId: "",
   wakeLock: null,
   alignNudge: 0,
-  // A live match from Waiting for video whose Vimeo link is being entered.
-  attachRecord: null,
+  // The open video is a live match with no Vimeo link yet: its moments can be edited and saved, and
+  // the video is attached from the box where the player would be.
+  noVideo: false,
+  // The Pass sequence being counted in the Tag screen (P adds a pass, L ends it).
+  passChainId: null,
 };
 
 function showNotice(selector, message, kind = "", action = null) {
@@ -352,6 +369,7 @@ function serializeTag(tag) {
     // Live moments keep the time they were tagged, so they can be lined up with the video again later.
     ...(typeof tag.liveAt === "number" ? { liveAt: tag.liveAt, liveHalf: tag.liveHalf === 2 ? 2 : 1 } : {}),
     ...(tag.liveAnchor ? { liveAnchor: tag.liveAnchor } : {}),
+    ...(passCountText(tag) ? { passCount: tag.passCount } : {}),
   };
 }
 
@@ -429,7 +447,7 @@ const autosaveRetryMs = 30000;
 
 function autosaveEligible() {
   return !!supabase && state.role === "admin" && !!state.activeRecord
-    && state.activeRecord.status !== "published" && state.playerReady;
+    && state.activeRecord.status !== "published" && (state.playerReady || state.noVideo);
 }
 
 function scheduleAutosave() {
@@ -535,7 +553,7 @@ async function autosave() {
 }
 
 function actionHint(incomplete, isPublished) {
-  if (!state.activeRecord || !state.playerReady) return "";
+  if (!state.activeRecord || !(state.playerReady || state.noVideo)) return "";
   const parts = [];
   if (incomplete) {
     parts.push(incomplete === 1
@@ -561,10 +579,10 @@ function refreshActions() {
   // A published record has no draft copy, so any save is visible to viewers; only offer the explicit re-publish action.
   const isPublished = state.activeRecord?.status === "published";
   const incomplete = state.tags.filter((tag) => !isComplete(tag)).length;
-  const canSave = isAdmin && !!state.activeRecord && state.playerReady && !state.isSaving;
+  const canSave = isAdmin && !!state.activeRecord && (state.playerReady || state.noVideo) && !state.isSaving;
   $("#saveVideoButton").hidden = isPublished;
   // Add to queue saves the form as a new video, so it only makes sense when no video is open.
-  $("#queueVideoButton").hidden = !!state.activeRecord || !!state.attachRecord;
+  $("#queueVideoButton").hidden = !!state.activeRecord;
   $("#unpublishVideoButton").hidden = !isPublished;
   $("#unpublishVideoButton").disabled = !canSave;
   $("#saveVideoButton").disabled = !canSave || !state.isDirty;
@@ -578,6 +596,9 @@ function refreshActions() {
   $("#tagCount").textContent = state.tags.length;
   // The line keeps its height when empty, so the Mark moment button below it never shifts under the pointer.
   $("#incompleteCount").textContent = incomplete ? `${incomplete} need${incomplete === 1 ? "s" : ""} a type` : "";
+  for (const selector of ["#passChainButton", "#passChainPlus", "#passChainMinus", "#passChainStop"]) {
+    $(selector).disabled = !isAdmin || !state.playerReady;
+  }
   document.querySelectorAll(".tag-time, .use-video-time, .quick-key").forEach((button) => { button.disabled = !state.playerReady; });
 }
 
@@ -712,6 +733,7 @@ function renderLibrary() {
       const details = document.createElement("span");
       const teamName = state.teams.find((team) => team.id === record.teamId)?.name || "";
       const liveHere = state.live?.id === record.id && !state.live.endedAt;
+      const noVideo = !record.vimeoUrl;
       details.textContent = status === "waiting"
         ? [teamName, liveHere ? "Live now" : "Tagged live", plural(record.tags.filter((tag) => !markerTypes.has(tag.eventType) && !tag.liveAnchor).length, "moment"), "No video yet"].filter(Boolean).join(" · ")
         : status === "queued"
@@ -721,12 +743,13 @@ function renderLibrary() {
           plural(record.tags.filter((tag) => !markerTypes.has(tag.eventType)).length, "moment"),
           incomplete ? `${incomplete} need${incomplete === 1 ? "s" : ""} a type` : "",
           `Updated ${new Date(record.updatedAt).toLocaleDateString()}`,
+          noVideo ? "No video yet" : "",
         ].filter(Boolean).join(" · ");
       button.append(title, details);
       button.addEventListener("click", async () => {
-        if (status === "waiting") {
+        if (noVideo) {
           if (liveHere) openLive();
-          else await startAttach(record);
+          else await openWithoutVideo(record);
           return;
         }
         await flushAutosave();
@@ -745,6 +768,15 @@ function renderLibrary() {
         removeButton.addEventListener("click", () => removeVideo(record));
         const actions = document.createElement("div");
         actions.className = "saved-video-actions";
+        if (status === "waiting" && !liveHere) {
+          const publishButton = document.createElement("button");
+          publishButton.type = "button";
+          publishButton.className = "remove-video";
+          publishButton.textContent = "Publish without video";
+          publishButton.setAttribute("aria-label", `Publish ${record.title} without its video`);
+          publishButton.addEventListener("click", () => publishWithoutVideo(record));
+          actions.append(publishButton);
+        }
         if (record.status === "published") {
           const unpublishButton = document.createElement("button");
           unpublishButton.type = "button";
@@ -814,7 +846,7 @@ function renderWatchVideoList() {
     const moments = record.tags.filter((tag) => isComplete(tag) && !markerTypes.has(tag.eventType)).length;
     const when = record.publishedAt || record.updatedAt;
     const details = document.createElement("span");
-    details.textContent = [team, when ? new Date(when).toLocaleDateString() : "", plural(moments, "moment")].filter(Boolean).join(" · ");
+    details.textContent = [team, when ? new Date(when).toLocaleDateString() : "", plural(moments, "moment"), record.vimeoUrl ? "" : "Video coming soon"].filter(Boolean).join(" · ");
     card.append(title, details);
     card.addEventListener("click", () => {
       if (record.id !== state.selectedWatchId) selectWatchVideo(record.id);
@@ -874,6 +906,27 @@ async function removeVideo(record) {
     notify(`"${record.title}" was removed from the library.`, "success");
   } catch (error) {
     notify(`Could not remove "${record.title}": ${friendlyError(error)}`, "error");
+  }
+}
+
+// Lets viewers see a live match's events and stats before its video is ready. Clips play once the video
+// is attached, lined up and re-published.
+async function publishWithoutVideo(record) {
+  if (!window.confirm(`Publish "${record.title}" without its video? Viewers see its events and stats now. Clips play once you attach the video and re-publish.`)) return;
+  try {
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("videos")
+      .update({ status: "published", published_at: now, updated_at: now, tags: withMatchClock(record.tags.map(normalizeTag)).map(serializeTag) })
+      .eq("id", record.id)
+      .select("id")
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("Video was not found or you do not have permission to change it.");
+    await loadLibrary();
+    notify(`"${record.title}" is published without its video. Viewers can see its events and stats in Watch.`, "success");
+  } catch (error) {
+    notify(`Could not publish "${record.title}": ${friendlyError(error)}`, "error");
   }
 }
 
@@ -1305,15 +1358,21 @@ function tagEventLabel(tag) {
     return "Other";
   }
   if (tag.eventType && typeof tag.eventType === "string") {
-    const match = eventTypes.find(([value]) => value === tag.eventType);
+    const match = eventTypes.find(([value]) => value === tag.eventType) || retiredEventTypes.find(([value]) => value === tag.eventType);
     return match?.[1] || tag.eventType.replaceAll("_", " ");
   }
   return "Unclassified moment";
 }
 
+// "6 passes" for a pass sequence with a count, otherwise "".
+function passCountText(tag) {
+  const count = tag?.eventType === "pass_sequence" ? tag.passCount : 0;
+  return Number.isInteger(count) && count > 0 ? `${count} pass${count === 1 ? "" : "es"}` : "";
+}
+
 function watchEventTitle(tag) {
   const label = tagEventLabel(tag);
-  const details = [tag.playerNames, tag.note].filter(Boolean).join(" · ");
+  const details = [passCountText(tag), tag.playerNames, tag.note].filter(Boolean).join(" · ");
   return details ? `${label} — ${details}` : label;
 }
 
@@ -1709,7 +1768,54 @@ function renderWatchStats(record) {
     return item;
   }));
 
-  container.replaceChildren(eventsHeading, hint, tableWrap, playersHeading, playerList);
+  container.replaceChildren(eventsHeading, hint, tableWrap, ...passStats(counted, halfTime, inHalf), playersHeading, playerList);
+}
+
+// Passing: how many pass sequences, how long they were, and the longer ones to watch back.
+function passStats(counted, halfTime, inHalf) {
+  const sequences = counted.filter((tag) => passCountText(tag));
+  if (!sequences.length) return [];
+  const heading = document.createElement("h3");
+  heading.className = "stats-heading";
+  heading.textContent = "Passing";
+  const counts = sequences.map((tag) => tag.passCount);
+  const total = counts.reduce((sum, count) => sum + count, 0);
+  const longest = Math.max(...counts);
+  const summary = document.createElement("p");
+  summary.className = "stats-hint";
+  summary.textContent = `${total} passes in ${plural(sequences.length, "sequence")}. Longest: ${longest} passes. Average: ${(total / sequences.length).toFixed(1)}. Click a number to play those clips.`;
+  const table = document.createElement("table");
+  table.className = "stats-table";
+  const columns = halfTime === null ? ["Sequences", "Total"] : ["Sequences", "1st half", "2nd half", "Total"];
+  const head = table.createTHead().insertRow();
+  for (const name of columns) {
+    const cell = document.createElement("th");
+    cell.scope = "col";
+    cell.textContent = name;
+    head.append(cell);
+  }
+  const body = table.createTBody();
+  for (const [label, tags] of [
+    ["All pass sequences", sequences],
+    ["3 or more passes", sequences.filter((tag) => tag.passCount >= 3)],
+    ["5 or more passes", sequences.filter((tag) => tag.passCount >= 5)],
+    [`Longest (${longest} passes)`, sequences.filter((tag) => tag.passCount === longest)],
+  ]) {
+    const row = body.insertRow();
+    const name = document.createElement("th");
+    name.scope = "row";
+    name.textContent = label;
+    row.append(name);
+    if (halfTime !== null) {
+      row.insertCell().append(statCount(inHalf(tags, 1), `${label}, 1st half`));
+      row.insertCell().append(statCount(inHalf(tags, 2), `${label}, 2nd half`));
+    }
+    row.insertCell().append(statCount(tags, label));
+  }
+  const wrap = document.createElement("div");
+  wrap.className = "stats-table-wrap";
+  wrap.append(table);
+  return [heading, summary, wrap];
 }
 
 function mapPlaylist(row) {
@@ -2076,6 +2182,14 @@ async function selectWatchVideo(recordId) {
   $("#watchWorkspace").hidden = false;
   $("#watchVideoTitle").textContent = record.title;
   renderWatchEvents(record);
+  if (!record.vimeoUrl) {
+    const waiting = document.createElement("div");
+    waiting.className = "watch-no-video";
+    waiting.textContent = "Video coming soon. Here are the events tagged live; clips play once the video is added.";
+    $("#watchVideoFrame").append(waiting);
+    notifyWatch(`${record.title} was tagged live and its video isn't ready yet. Its events and stats are below.`);
+    return;
+  }
   notifyWatch("Loading video…");
 
   let video;
@@ -2344,6 +2458,8 @@ function renderTagRow(tag, done) {
   eventType.className = "event-type";
   eventType.setAttribute("aria-label", `Event type at ${time}`);
   for (const [value, text] of eventTypes) eventType.add(new Option(text, value));
+  const retired = retiredEventTypes.find(([value]) => value === tag.eventType);
+  if (retired) eventType.add(new Option(`${retired[1]} (no longer offered)`, retired[0]));
   eventType.value = tag.eventType || "";
   eventType.addEventListener("change", () => {
     applyEventType(eventType.value);
@@ -2352,6 +2468,22 @@ function renderTagRow(tag, done) {
 
   const customWrap = document.createElement("div");
   customWrap.className = "custom-event-wrap";
+
+  const passWrap = document.createElement("label");
+  passWrap.className = "pass-count-field";
+  const passInput = document.createElement("input");
+  passInput.type = "number";
+  passInput.min = "1";
+  passInput.max = "99";
+  passInput.inputMode = "numeric";
+  passInput.value = tag.passCount || "";
+  passInput.setAttribute("aria-label", `Number of passes in the sequence at ${time}`);
+  passInput.addEventListener("input", () => {
+    const count = Number(passInput.value);
+    updateTag(tag.id, { passCount: Number.isInteger(count) && count > 0 && count < 100 ? count : null });
+    refreshRow();
+  });
+  passWrap.append("Passes ", passInput);
 
   const customEvent = document.createElement("input");
   customEvent.className = "custom-event";
@@ -2574,8 +2706,9 @@ function renderTagRow(tag, done) {
     status.textContent = current.eventType === "other" ? "Name this event" : "Needs an event type";
     quickTypes.hidden = !!current.eventType;
     customWrap.hidden = current.eventType !== "other";
+    passWrap.hidden = current.eventType !== "pass_sequence";
     if (!done) doneButton.disabled = !complete;
-    summaryLabel.textContent = complete ? tagEventLabel(current) : "Needs a type";
+    summaryLabel.textContent = complete ? [tagEventLabel(current), passCountText(current)].filter(Boolean).join(" · ") : "Needs a type";
     const { ids, others } = tagPlayers(current, activeTeamId());
     const names = [...ids.map((id) => state.memberById.get(id)).filter(Boolean).map(memberLabel), ...others];
     summaryPlayers.textContent = names.length ? names.join(", ") : "";
@@ -2584,7 +2717,7 @@ function renderTagRow(tag, done) {
     summaryMain.setAttribute("aria-label", `${time} ${summaryLabel.textContent}${names.length ? `, ${names.join(", ")}` : ""}. ${expanded ? "Close" : "Edit"} this moment`);
   }
 
-  details.append(timeEditor, status, quickTypes, eventType, customWrap, picker, note, rowActions);
+  details.append(timeEditor, status, quickTypes, eventType, customWrap, passWrap, picker, note, rowActions);
   editor.append(timeColumn, details, deleteButton);
   row.append(summary, editor);
   refreshRow();
@@ -2677,6 +2810,7 @@ function groupOrder(tag) {
 }
 
 function renderTags() {
+  renderPassChain();
   $("#emptyTags").hidden = state.tags.length > 0;
   const todo = state.tags.filter((tag) => !isDone(tag));
   const done = state.tags.filter(isDone);
@@ -2797,7 +2931,8 @@ function matchOrderSection(todo) {
   if (halfTime !== null) list.append(divider("1st half"));
   let secondHalf = false;
   for (const tag of sorted) {
-    if (halfTime !== null && !secondHalf && tag.timestampSeconds > halfTime) {
+    // A live second-half kick-off can share Half-time's match time; it still starts the 2nd half.
+    if (halfTime !== null && !secondHalf && tag.eventType !== "half_time" && (tag.timestampSeconds > halfTime || tag.liveHalf === 2)) {
       list.append(divider("2nd half"));
       secondHalf = true;
     }
@@ -2900,7 +3035,7 @@ function renderVideoHeader() {
   $("#videoHeaderTitle").textContent = $("#videoName").value.trim() || "Untitled video";
   const team = state.teams.find((item) => item.id === activeTeamId())?.name || "";
   const saved = state.records.some((item) => item.id === record.id);
-  const status = !saved ? "New, not saved yet" : record.status === "published" ? "Published" : "In progress";
+  const status = !saved ? "New, not saved yet" : [record.status === "published" ? "Published" : "In progress", state.noVideo ? "No video yet" : ""].filter(Boolean).join(" · ");
   $("#videoHeaderMeta").textContent = [team, status].filter(Boolean).join(" · ").toUpperCase();
   const editing = $("#tagPanel").classList.contains("editing-details");
   $("#editDetailsButton").textContent = editing ? "Done" : "Edit details";
@@ -2934,7 +3069,7 @@ function loadQuickTypes() {
 }
 
 function eventTypeName(value) {
-  return eventTypes.find(([type]) => type === value)?.[1] || value;
+  return (eventTypes.find(([type]) => type === value) || retiredEventTypes.find(([type]) => type === value))?.[1] || value;
 }
 
 // The on-screen quick-type buttons under Mark moment, each showing its key.
@@ -3000,7 +3135,8 @@ function renderLastMarked() {
     return;
   }
   const players = (tag.playerIds || []).map((id) => state.memberById.get(id)).filter(Boolean).map(memberLabel);
-  $("#lastMarkedText").textContent = `Last: ${isComplete(tag) ? tagEventLabel(tag) : "untyped moment"} at ${formatTime(tag.timestampSeconds)}${players.length ? ` · ${players.join(", ")}` : ""}`;
+  const passes = passCountText(tag);
+  $("#lastMarkedText").textContent = `Last: ${isComplete(tag) ? tagEventLabel(tag) : "untyped moment"}${passes ? ` (${passes})` : ""} at ${formatTime(tag.timestampSeconds)}${players.length ? ` · ${players.join(", ")}` : ""}`;
   $("#lastMarkedNumber").textContent = state.numberBuffer ? `#${state.numberBuffer}` : "";
   $("#lastMarkedNumber").hidden = !state.numberBuffer;
   const hasSquad = teamPlayers(activeTeamId()).length > 0;
@@ -3030,6 +3166,50 @@ function assignShirtNumber() {
   }
   renderTags();
   notify(`Added ${memberLabel(player)} to the ${isComplete(tag) ? tagEventLabel(tag) : "moment"} at ${formatTime(tag.timestampSeconds)}.`, "success");
+}
+
+// ---- Pass chain while tagging a video ----
+// P on the first pass marks a Pass sequence (like a quick type, so the mark offset applies); each P
+// after that adds a pass; L ends it, and so does marking anything else.
+function passChainTag() {
+  return state.tags.find((tag) => tag.id === state.passChainId) || null;
+}
+
+function renderPassChain() {
+  const chain = passChainTag();
+  if (!chain) state.passChainId = null;
+  $("#passChainButton").hidden = !!chain;
+  $("#passChainActive").hidden = !chain;
+  if (chain) $("#passChainCount").textContent = chain.passCount;
+}
+
+async function passChainPress() {
+  const chain = passChainTag();
+  if (chain) {
+    countVideoPass(1);
+    return;
+  }
+  await markMoment("pass_sequence", { passCount: 1 });
+  const tag = state.tags.find((item) => item.id === state.lastMarkedId);
+  if (tag?.eventType !== "pass_sequence") return;
+  state.passChainId = tag.id;
+  renderPassChain();
+  notify(`Pass chain started at ${formatTime(tag.timestampSeconds)}. Press P (or +1 pass) for each pass after it, and L (Lost it) when the other team wins the ball.`, "success");
+}
+
+function countVideoPass(step) {
+  const chain = passChainTag();
+  if (!chain) return;
+  updateTag(chain.id, { passCount: Math.min(99, Math.max(1, chain.passCount + step)) });
+  renderTags();
+}
+
+function endPassChain() {
+  const chain = passChainTag();
+  if (!chain) return;
+  state.passChainId = null;
+  renderPassChain();
+  notify(`Pass sequence at ${formatTime(chain.timestampSeconds)}: ${passCountText(chain)}.`, "success");
 }
 
 function undoLastMark() {
@@ -3151,9 +3331,11 @@ function markOffsetSeconds() {
 // Marks a moment at the current time (minus the mark offset). With an event type (a quick-type key or
 // button) the moment is already complete, so it goes straight to Done; the "Last marked" bar then takes
 // shirt numbers for it.
-async function markMoment(eventType = "") {
+async function markMoment(eventType = "", extra = {}) {
   if (typeof eventType !== "string") eventType = "";
   if (!state.playerReady || !state.player) return;
+  // Marking anything else ends a pass chain.
+  state.passChainId = null;
   try {
     const offset = markOffsetSeconds();
     const timestampSeconds = Math.max(0, await state.player.getCurrentTime() - offset);
@@ -3167,6 +3349,7 @@ async function markMoment(eventType = "") {
       playerNames: "",
       note: "",
       done: false,
+      ...extra,
     };
     tag.done = isComplete(tag);
     state.tags = [...state.tags, tag].sort(byTime);
@@ -3297,8 +3480,7 @@ async function openVideo(value, record = null) {
   state.video = video;
   // A live match from Waiting for video gets its first Vimeo link here.
   const attaching = !!record && !record.vimeoUrl;
-  state.attachRecord = null;
-  $("#openVideoButton").textContent = "Open video";
+  setNoVideo(false);
   if (record && state.teamsAvailable) {
     renderTeamOptions();
     $("#videoTeam").value = record.teamId && state.teams.some((team) => team.id === record.teamId)
@@ -3324,6 +3506,7 @@ async function openVideo(value, record = null) {
   state.isDirty = false;
   cancelAutosave();
   state.lastMarkedId = null;
+  state.passChainId = null;
   state.numberBuffer = "";
   state.bulkIds = new Set();
   state.player = null;
@@ -3368,7 +3551,7 @@ async function openVideo(value, record = null) {
     renderAlignPreview();
     if (attaching) {
       setDirty();
-      notify(`Video attached to ${record.title}. Now line up the live moments under the video: find kick-off, or type the clock shown on screen.`, "success");
+      notify(`Video attached to ${record.title}. Now line up the live moments under the video: find kick-off, or type the clock shown on screen.${record.status === "published" ? " Then choose Re-publish changes so viewers get the clips." : ""}`, "success");
       return;
     }
     notify(record
@@ -3386,10 +3569,13 @@ async function openVideo(value, record = null) {
 function videoPayload() {
   const title = $("#videoName").value.trim();
   if (!title || title.length > 200) throw new Error("Enter a video name (up to 200 characters).");
-  const vimeoUrl = $("#videoUrl").value.trim();
-  const video = parseVimeoUrl(vimeoUrl);
-  if (video.id !== state.video.id || video.hash !== state.video.hash) {
-    throw new Error("The Vimeo link changed. Open that link before saving its moments.");
+  // A live match without its video saves its moments with no link; Attach video adds one.
+  const vimeoUrl = state.noVideo ? "" : $("#videoUrl").value.trim();
+  if (!state.noVideo) {
+    const video = parseVimeoUrl(vimeoUrl);
+    if (video.id !== state.video.id || video.hash !== state.video.hash) {
+      throw new Error("The Vimeo link changed. Open that link before saving its moments.");
+    }
   }
   if (state.teamsAvailable && state.teams.length && !activeTeamId()) throw new Error("Choose the team for this video.");
   return {
@@ -3403,7 +3589,7 @@ function videoPayload() {
 // mode: "progress" saves as In progress, "publish" saves as Published, "unpublish" takes a published
 // video back to In progress (saving any open edits with it).
 async function saveVideo(mode = "progress") {
-  if (!state.activeRecord || !state.playerReady || state.isSaving) return;
+  if (!state.activeRecord || !(state.playerReady || state.noVideo) || state.isSaving) return;
   const publish = mode === "publish";
   const wasPublished = state.activeRecord.status === "published";
   if (mode === "progress" && wasPublished) {
@@ -3488,21 +3674,79 @@ async function saveVideo(mode = "progress") {
   }
 }
 
-// Waiting for video: the form asks for the live match's Vimeo link, and Attach video opens it with its moments.
-async function startAttach(record) {
-  await startNewVideo();
-  if (state.activeRecord) return;
-  state.attachRecord = record;
+function setNoVideo(on) {
+  state.noVideo = on;
+  $("#videoCard").classList.toggle("no-video", on);
+  $("#tagsCard").classList.toggle("no-video", on);
+  $("#noVideoBox").hidden = !on;
+  if (!on) $("#attachUrl").value = "";
+}
+
+// A live match without its video opens like any video: its moments can be typed, given players, ticked
+// Done, deleted and saved (or published). They sit at match time. Attach video brings the video in later.
+async function openWithoutVideo(record) {
+  await flushAutosave();
+  if (!confirmDiscard()) return;
+  if (state.player) {
+    try {
+      await state.player.destroy();
+    } catch (error) {
+      console.error("Could not close the previous Vimeo player:", error);
+    }
+  }
+  state.video = null;
+  state.player = null;
+  state.videoDuration = 0;
+  exitStage();
   $("#videoName").value = record.title;
+  $("#videoUrl").value = "";
   if (state.teamsAvailable) {
     renderTeamOptions();
-    if (state.teams.some((team) => team.id === record.teamId)) $("#videoTeam").value = record.teamId;
+    $("#videoTeam").value = record.teamId && state.teams.some((team) => team.id === record.teamId)
+      ? record.teamId
+      : (state.teams.length === 1 ? state.teams[0].id : "");
   }
-  $("#openVideoButton").textContent = "Attach video";
-  refreshActions();
+  const teamId = activeTeamId();
+  state.tags = withMatchClock((record.tags || []).map((tag) => withPlayers(normalizeTag(tag), teamId))).sort(byTime);
+  state.activeRecord = record;
+  state.isDirty = false;
+  cancelAutosave();
+  state.lastMarkedId = null;
+  state.passChainId = null;
+  state.numberBuffer = "";
+  state.bulkIds = new Set();
+  $("#videoFrame").replaceChildren();
+  setNoVideo(true);
+  setPlayerReady(false);
+  setPlayingLabel(false);
+  updatePlayerClock(0);
+  $("#saveHint").textContent = `Saved ${record.status === "published" ? "as published" : "in progress"}`;
+  $("#tagPanel").classList.add("has-video");
+  $("#videoCard").hidden = false;
+  $("#tagsCard").hidden = false;
+  renderTags();
+  renderLiveAlign();
   renderLibrary();
-  notify(`Paste the Vimeo link for "${record.title}", then press Attach video. Its live moments come with it.`);
-  $("#videoUrl").focus();
+  renderVideoHeader();
+  notify(`Opened ${record.title}. Its live moments are at match time: give them types and players, tick them Done and save. When the video is ready, paste its Vimeo link in the No video yet box.`, "success");
+}
+
+// Brings the video in, carrying the moments as they are now (including unsaved edits).
+async function attachVideo() {
+  if (!state.noVideo || !state.activeRecord) return;
+  const url = $("#attachUrl").value.trim();
+  try {
+    parseVimeoUrl(url);
+  } catch (error) {
+    notify(error.message, "error");
+    $("#attachUrl").focus();
+    return;
+  }
+  await flushAutosave();
+  const record = { ...state.activeRecord, title: $("#videoName").value.trim() || state.activeRecord.title, vimeoUrl: "", tags: state.tags.map(serializeTag) };
+  state.isDirty = false;
+  $("#videoUrl").value = url;
+  await openVideo(url, record);
 }
 
 async function startNewVideo() {
@@ -3519,8 +3763,7 @@ async function startNewVideo() {
   state.video = null;
   state.player = null;
   state.activeRecord = null;
-  state.attachRecord = null;
-  $("#openVideoButton").textContent = "Open video";
+  setNoVideo(false);
   state.tags = [];
   state.isDirty = false;
   cancelAutosave();
@@ -3572,7 +3815,7 @@ function showSignedOut() {
   clearTimeout(state.liveSyncTimer);
   state.liveTicker = null;
   state.live = null;
-  state.attachRecord = null;
+  setNoVideo(false);
   releaseScreen();
   document.body.classList.remove("live-open");
   $("#livePanel").hidden = true;
@@ -3767,10 +4010,6 @@ $("#videoForm").addEventListener("submit", (event) => {
   if (!title) {
     notify("Enter a name for this video.", "error");
     $("#videoName").focus();
-    return;
-  }
-  if (state.attachRecord) {
-    openVideo($("#videoUrl").value.trim(), { ...state.attachRecord, title });
     return;
   }
   openVideo($("#videoUrl").value.trim());
@@ -3994,6 +4233,14 @@ $("#timelineBar").addEventListener("click", (event) => {
 });
 $("#lastMarkedUndo").addEventListener("mousedown", (event) => event.preventDefault());
 $("#lastMarkedUndo").addEventListener("click", undoLastMark);
+for (const selector of ["#passChainButton", "#passChainPlus", "#passChainMinus", "#passChainStop"]) {
+  // Keep keyboard focus where it was, so P and L keep working after a click.
+  $(selector).addEventListener("mousedown", (event) => event.preventDefault());
+}
+$("#passChainButton").addEventListener("click", passChainPress);
+$("#passChainPlus").addEventListener("click", () => countVideoPass(1));
+$("#passChainMinus").addEventListener("click", () => countVideoPass(-1));
+$("#passChainStop").addEventListener("click", endPassChain);
 
 $("#rewindButton").addEventListener("click", () => seekBy(-seekStepSeconds));
 $("#forwardButton").addEventListener("click", () => seekBy(seekStepSeconds));
@@ -4086,6 +4333,10 @@ window.addEventListener("keydown", (event) => {
       setKeysHelp(false);
       renderLastMarked();
     },
+    p: () => passChainPress(),
+    P: () => passChainPress(),
+    l: () => endPassChain(),
+    L: () => endPassChain(),
   };
   let action = actions[event.key];
   if (!action && /^[0-9]$/.test(event.key) && state.lastMarkedId) {
@@ -4176,12 +4427,30 @@ function liveMatchSeconds(at, live = state.live) {
   return (at - live.kickoffAt) / 1000;
 }
 
+// The match's kick-off, half-time and restart times, read back from its moments.
+function liveTimes(tags) {
+  const kickoff = liveAnchor(tags, "kickoff");
+  if (!kickoff) return null;
+  const restart = liveAnchor(tags, "second_half");
+  const half = tags.find((tag) => tag.eventType === "half_time" && typeof tag.liveAt === "number");
+  return { kickoffAt: kickoff.liveAt, halfTimeAt: half?.liveAt ?? restart?.liveAt ?? null, secondHalfAt: restart?.liveAt ?? null };
+}
+
+// Live moments not yet lined up with a video sit at their match time (the half-time break left out).
+function withMatchClock(tags) {
+  const times = liveTimes(tags);
+  if (!times) return tags;
+  return tags.map((tag) => (typeof tag.liveAt === "number"
+    ? { ...tag, timestampSeconds: Math.max(0, Math.round(liveMatchSeconds(tag.liveAt, times) * 10) / 10) }
+    : tag));
+}
+
 function liveTag(eventType, extra = {}) {
   const at = liveClock.now();
   const live = state.live;
   const tag = {
     id: crypto.randomUUID(),
-    timestampSeconds: Math.max(0, (at - live.kickoffAt) / 1000),
+    timestampSeconds: Math.max(0, Math.round(liveMatchSeconds(at) * 10) / 10),
     eventType,
     customEventType: "",
     playerIds: [],
@@ -4390,8 +4659,12 @@ function renderLive() {
   if (last) {
     const names = (last.playerIds || []).map((id) => state.memberById.get(id)).filter(Boolean).map(memberLabel);
     $("#liveLastTime").textContent = `LAST · ${formatTime(liveMatchSeconds(last.liveAt))}`;
-    $("#liveLastText").textContent = [isComplete(last) ? tagEventLabel(last) : "Moment (type later)", ...names].join(" · ");
+    $("#liveLastText").textContent = [isComplete(last) ? tagEventLabel(last) : "Moment (type later)", passCountText(last), ...names].filter(Boolean).join(" · ");
   }
+  const chain = live.tags.find((tag) => tag.id === live.chainId);
+  $("#livePassStart").hidden = !!chain;
+  $("#livePassActive").hidden = !chain;
+  if (chain) $("#livePassCount").textContent = chain.passCount;
   const atHalfTime = !!live.halfTimeAt && !live.secondHalfAt;
   $("#liveHalfButton").hidden = !!live.secondHalfAt;
   $("#liveHalfButton").textContent = atHalfTime ? "▶ Start 2nd half" : "⏸ Half-time";
@@ -4477,9 +4750,36 @@ function startLiveMatch(event) {
 
 function liveMark(eventType) {
   if (!liveRunning()) return null;
+  // Anything else happening ends a pass chain.
+  state.live.chainId = null;
   const tag = addLiveTag(liveTag(eventType));
   notifyLive(`${isComplete(tag) ? tagEventLabel(tag) : "Moment"} at ${formatTime(liveMatchSeconds(tag.liveAt))}.`, "success");
   return tag;
+}
+
+// Pass chain: the first tap saves a Pass sequence at that moment; each tap adds a pass; Lost it (or any
+// other event) ends it.
+function liveStartPasses() {
+  if (!liveRunning()) return;
+  const tag = liveMark("pass_sequence");
+  tag.passCount = 1;
+  state.live.chainId = tag.id;
+  liveChanged([tag.id]);
+}
+
+function liveCountPass(step) {
+  const chain = state.live?.tags.find((tag) => tag.id === state.live.chainId);
+  if (!chain) return;
+  chain.passCount = Math.min(99, Math.max(1, chain.passCount + step));
+  liveChanged([chain.id]);
+}
+
+function liveStopPasses() {
+  const chain = state.live?.tags.find((tag) => tag.id === state.live.chainId);
+  if (!chain) return;
+  state.live.chainId = null;
+  renderLive();
+  notifyLive(`Pass sequence: ${passCountText(chain)}.`, "success");
 }
 
 function liveTogglePlayer(playerId) {
@@ -4495,6 +4795,7 @@ function liveUndo() {
   if (!tag) return;
   state.live.tags = state.live.tags.filter((item) => item.id !== tag.id);
   state.live.lastId = null;
+  if (state.live.chainId === tag.id) state.live.chainId = null;
   liveChanged([tag.id]);
   notifyLive(`Removed the ${isComplete(tag) ? tagEventLabel(tag) : "moment"} at ${formatTime(liveMatchSeconds(tag.liveAt))}.`);
 }
@@ -4504,6 +4805,7 @@ function liveHalfTime() {
   if (!liveRunning() || live.secondHalfAt) return;
   if (!live.halfTimeAt) {
     if (!window.confirm("Half-time now? The clock stops until you start the second half.")) return;
+    live.chainId = null;
     const tag = liveTag("half_time", { done: true });
     live.halfTimeAt = tag.liveAt;
     addLiveTag(tag, { last: false });
@@ -4522,6 +4824,7 @@ function liveEnd() {
   const tag = liveTag("end_of_game", { done: true });
   live.endedAt = tag.liveAt;
   live.lastId = null;
+  live.chainId = null;
   clearInterval(state.liveTicker);
   state.liveTicker = null;
   releaseScreen();
@@ -4703,7 +5006,7 @@ function alignInputs() {
 // Shows the card for live matches, filled in from where the moments sit now.
 function renderLiveAlign() {
   const card = $("#liveAlign");
-  const live = isLiveMatch(state.tags) && state.role === "admin";
+  const live = isLiveMatch(state.tags) && state.role === "admin" && !state.noVideo;
   card.hidden = !live;
   if (!live) return;
   const first = liveAnchor(state.tags, "kickoff");
@@ -4789,6 +5092,10 @@ $("#liveChangeButton").addEventListener("click", () => {
   if (state.live?.lastId) openLiveTypes(state.live.lastId);
 });
 $("#liveHalfButton").addEventListener("click", liveHalfTime);
+$("#livePassStart").addEventListener("click", liveStartPasses);
+$("#livePassPlus").addEventListener("click", () => liveCountPass(1));
+$("#livePassMinus").addEventListener("click", () => liveCountPass(-1));
+$("#livePassStop").addEventListener("click", liveStopPasses);
 $("#liveEndButton").addEventListener("click", liveEnd);
 $("#liveDoneButton").addEventListener("click", liveFinish);
 $("#liveTypeLater").addEventListener("click", () => {
@@ -4827,6 +5134,12 @@ $("#alignNudgeUp").addEventListener("click", () => {
   renderAlignPreview();
 });
 $("#alignApplyButton").addEventListener("click", applyLiveAlignment);
+$("#attachButton").addEventListener("click", attachVideo);
+$("#attachUrl").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  attachVideo();
+});
 
 if (!supabase) {
   setLoginNotice("Supabase is not configured. Add your project URL and publishable key to public/config.js.", "error");
