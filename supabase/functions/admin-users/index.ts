@@ -1,10 +1,10 @@
 // Supabase Edge Function "admin-users": lets Touchline admins invite, list, re-role and remove users.
 // Account changes need Supabase's service-role key, which must never reach the browser. Supabase gives
-// every Edge Function SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY as environment settings, so nothing
+// every Edge Function SUPABASE_URL and its secret keys as environment settings (see serverKey), so nothing
 // secret is stored in this file or the repository. Every request must come from a signed-in admin.
 // Deploy: Supabase dashboard > Edge Functions > Deploy a new function > Via editor, name it
 // "admin-users", paste this file, Deploy (see database/README.md).
-import { createClient } from "npm:@supabase/supabase-js@2.45.4";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -40,6 +40,19 @@ function describe(user: AuthUser, role: string | null) {
   };
 }
 
+// Projects on Supabase's newer API keys get SUPABASE_SECRET_KEYS (a JSON list of secret keys by name);
+// older ones get SUPABASE_SERVICE_ROLE_KEY. Either gives the function admin access.
+function serverKey() {
+  try {
+    const keys = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}") as Record<string, string>;
+    const key = keys.default ?? Object.values(keys)[0];
+    if (key) return key;
+  } catch {
+    // Not set or not JSON: fall back to the older key.
+  }
+  return Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+}
+
 function cleanRedirect(value: unknown) {
   return typeof value === "string" && /^https?:\/\//.test(value) ? value : undefined;
 }
@@ -49,7 +62,7 @@ Deno.serve(async (request: Request) => {
   if (request.method !== "POST") return reply({ error: "Use POST." }, 405);
 
   const url = Deno.env.get("SUPABASE_URL");
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const serviceKey = serverKey();
   if (!url || !serviceKey) return reply({ error: "The admin-users function is missing its Supabase settings." }, 500);
   const admin = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
 
