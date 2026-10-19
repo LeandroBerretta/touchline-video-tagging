@@ -68,6 +68,28 @@ function publicKey(request: Request) {
   return Deno.env.get("SUPABASE_ANON_KEY");
 }
 
+// A newer "sb_secret_…" key is not a sign-in token: the database API wants it only as the apikey header
+// (Supabase then acts with full access), so it is not also sent as "Authorization: Bearer".
+function databaseFetch(key: string): typeof fetch {
+  return (input, init) => {
+    const target = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const headers = new Headers(init?.headers);
+    if (key.startsWith("sb_secret_") && target.includes("/rest/v1/") && headers.get("Authorization") === `Bearer ${key}`) {
+      headers.delete("Authorization");
+    }
+    return fetch(input, { ...init, headers });
+  };
+}
+
+// Supabase errors are not always Error objects; get a readable message from any of them.
+function messageOf(error: unknown) {
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string" && error.message) {
+    const details = "details" in error && typeof error.details === "string" && error.details ? ` (${error.details})` : "";
+    return `${error.message}${details}`;
+  }
+  return String(error || "Something went wrong.");
+}
+
 function cleanRedirect(value: unknown) {
   return typeof value === "string" && /^https?:\/\//.test(value) ? value : undefined;
 }
@@ -79,7 +101,10 @@ Deno.serve(async (request: Request) => {
   const url = Deno.env.get("SUPABASE_URL");
   const serviceKey = serverKey();
   if (!url || !serviceKey) return reply({ error: "The admin-users function is missing its Supabase settings." }, 500);
-  const admin = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+  const admin = createClient(url, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+    global: { fetch: databaseFetch(serviceKey) },
+  });
 
   // Who is asking: their sign-in token must be valid and their role must be admin.
   const token = (request.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
@@ -110,12 +135,12 @@ Deno.serve(async (request: Request) => {
         const users: AuthUser[] = [];
         for (let page = 1; page <= 50; page++) {
           const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
-          if (error) throw error;
+          if (error) throw new Error(`Listing accounts: ${messageOf(error)}`);
           users.push(...(data.users as AuthUser[]));
           if (data.users.length < 200) break;
         }
         const { data: roleRows, error } = await admin.from("app_users").select("user_id, role");
-        if (error) throw error;
+        if (error) throw new Error(`Reading roles: ${messageOf(error)}`);
         const roleOf = new Map((roleRows ?? []).map((row) => [row.user_id, row.role]));
         return reply({ users: users.map((user) => describe(user, roleOf.get(user.id) ?? null)) });
       }
@@ -177,6 +202,6 @@ Deno.serve(async (request: Request) => {
     }
   } catch (error) {
     console.error("admin-users failed:", error);
-    return reply({ error: error instanceof Error ? error.message : "Something went wrong." }, 500);
+    return reply({ error: messageOf(error) }, 500);
   }
 });
