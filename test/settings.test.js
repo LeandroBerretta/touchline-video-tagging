@@ -158,3 +158,32 @@ test("Stats: average time between pass sequences, per half without the break", a
   // Gaps: 240 (1st half); 120 and 120 (2nd half). Average 160 = 02:40.
   assert.match(page.text("#watchStatsView"), /Time between sequences: 02:40 on average \(1st half 04:00, 2nd half 02:00\)/);
 });
+
+test("Tag screen Stats view: counts this video's moments as they are, untyped ones left out", async () => {
+  const tags = [
+    moment("s", 10, "start_of_game"),
+    moment("g", 300, "goal"),
+    moment("h", 1800, "half_time"),
+    moment("c", 2000, "corner"),
+    moment("p", 2100, "pass_sequence", { passCount: 4 }),
+    moment("u", 2200, "", { done: false, completed: false }),
+  ];
+  const page = await openPage({ tables: standardTables({ inProgressTags: tags }) });
+  await page.openFromLibrary("Test FC vs Rivals");
+  await page.click("#tagViewStats");
+  assert.equal(page.$("#tagViewStats").getAttribute("aria-pressed"), "true");
+  assert.equal(page.window.localStorage.getItem("touchline.tagView"), "stats");
+  const stats = page.text("#tagList");
+  assert.match(stats, /1 moment without a type isn't counted/);
+  assert.match(stats, /Split at Half-time \(30:00\)/);
+  assert.match(stats, /Goal\s*1\s*0\s*1/);
+  assert.match(stats, /Passing/);
+  assert.equal(page.$$("#tagList .stat-play").length, 0, "nothing to play here: plain numbers");
+
+  // It follows edits straight away.
+  page.vimeo.current.time = 2500;
+  await page.press("y");
+  assert.match(page.text("#tagList"), /Goal\s*1\s*1\s*2/);
+  await page.click("#tagViewMatch");
+  assert.ok(page.$("#tagList .tag-summary-main"));
+});

@@ -457,6 +457,10 @@ Under **Tagging options** in the Tag screen, remembered in this browser:
 In Watch, Choose clips can show only pass sequences of at least N passes,
 and Stats › Passing gives the average time between sequences, per half.
 
+The Tag screen has a **Stats** view next to Match order and To do & Done:
+the same tables as Watch, from the open video's moments with a type, updated
+as you tag (numbers there don't play clips).
+
 ## UC11 Manage users (admin)
 
 The **Users** tab lists every Supabase Auth account with its role (Admin,

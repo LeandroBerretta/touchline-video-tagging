@@ -1669,11 +1669,11 @@ function setWatchView(view) {
 }
 
 // A count that plays its clips back to back when clicked.
-function statCount(tags, description) {
-  if (!tags.length) {
+function statCount(tags, description, play = startPlaylist) {
+  if (!tags.length || !play) {
     const zero = document.createElement("span");
-    zero.className = "stat-zero";
-    zero.textContent = "0";
+    zero.className = tags.length ? "stat-number" : "stat-zero";
+    zero.textContent = String(tags.length);
     return zero;
   }
   const button = document.createElement("button");
@@ -1682,15 +1682,18 @@ function statCount(tags, description) {
   button.textContent = tags.length;
   button.title = `Play these ${plural(tags.length, "clip")}`;
   button.setAttribute("aria-label", `${description}: ${tags.length}. Play these clips`);
-  button.addEventListener("click", () => startPlaylist(tags, description));
+  button.addEventListener("click", () => play(tags, description));
   return button;
 }
 
 // Counts the video's events by type (split by half when Half-time is tagged) and by player.
 // Markers (Start of game, Half-time, End of game) only set the boundaries and are never counted.
 function renderWatchStats(record) {
-  const container = $("#watchStatsView");
-  const all = watchEvents(record);
+  renderStats($("#watchStatsView"), watchEvents(record), record.teamId, startPlaylist);
+}
+
+// The stats tables, for Watch (numbers play their clips) and the Tag screen (play = null: plain numbers).
+function renderStats(container, all, teamId, play) {
   const halfTime = all.find((tag) => tag.eventType === "half_time")?.timestampSeconds ?? null;
   const counted = all.filter((tag) => !markerTypes.has(tag.eventType));
   if (!counted.length) {
@@ -1741,10 +1744,10 @@ function renderWatchStats(record) {
     name.textContent = label;
     row.append(name);
     if (halfTime !== null) {
-      row.insertCell().append(statCount(inHalf(tags, 1), `${label}, 1st half`));
-      row.insertCell().append(statCount(inHalf(tags, 2), `${label}, 2nd half`));
+      row.insertCell().append(statCount(inHalf(tags, 1), `${label}, 1st half`, play));
+      row.insertCell().append(statCount(inHalf(tags, 2), `${label}, 2nd half`, play));
     }
-    row.insertCell().append(statCount(tags, label));
+    row.insertCell().append(statCount(tags, label, play));
   };
   for (const [label, tags] of typeRows) addRow(label, tags);
   addRow("All events", counted, "stats-total");
@@ -1755,7 +1758,7 @@ function renderWatchStats(record) {
   const players = new Map();
   const unnamed = [];
   for (const tag of counted) {
-    const { ids, others } = tagPlayers(tag, record.teamId);
+    const { ids, others } = tagPlayers(tag, teamId);
     const people = [];
     for (const id of ids) {
       const member = state.memberById.get(id);
@@ -1790,7 +1793,7 @@ function renderWatchStats(record) {
     const name = document.createElement("span");
     name.className = "stats-player-name";
     name.textContent = player.name;
-    top.append(name, statCount(player.tags, player.name));
+    top.append(name, statCount(player.tags, player.name, play));
     const breakdown = new Map();
     for (const tag of player.tags) {
       const label = tagEventLabel(tag);
@@ -1806,11 +1809,11 @@ function renderWatchStats(record) {
     return item;
   }));
 
-  container.replaceChildren(eventsHeading, hint, tableWrap, ...passStats(counted, halfTime, inHalf), playersHeading, playerList);
+  container.replaceChildren(eventsHeading, hint, tableWrap, ...passStats(counted, halfTime, inHalf, play), playersHeading, playerList);
 }
 
 // Passing: how many pass sequences, how long they were, and the longer ones to watch back.
-function passStats(counted, halfTime, inHalf) {
+function passStats(counted, halfTime, inHalf, play) {
   const sequences = counted.filter((tag) => passCountText(tag));
   if (!sequences.length) return [];
   const heading = document.createElement("h3");
@@ -1855,10 +1858,10 @@ function passStats(counted, halfTime, inHalf) {
     name.textContent = label;
     row.append(name);
     if (halfTime !== null) {
-      row.insertCell().append(statCount(inHalf(tags, 1), `${label}, 1st half`));
-      row.insertCell().append(statCount(inHalf(tags, 2), `${label}, 2nd half`));
+      row.insertCell().append(statCount(inHalf(tags, 1), `${label}, 1st half`, play));
+      row.insertCell().append(statCount(inHalf(tags, 2), `${label}, 2nd half`, play));
     }
-    row.insertCell().append(statCount(tags, label));
+    row.insertCell().append(statCount(tags, label, play));
   }
   const wrap = document.createElement("div");
   wrap.className = "stats-table-wrap";
@@ -2869,8 +2872,8 @@ function renderTags() {
   state.bulkIds = new Set(todo.filter((tag) => state.bulkIds.has(tag.id)).map((tag) => tag.id));
   renderTagViewSwitch();
 
-  if (state.tags.length && state.tagView === "match") {
-    $("#tagList").replaceChildren(matchOrderSection(todo));
+  if (state.tags.length && (state.tagView === "match" || state.tagView === "stats")) {
+    $("#tagList").replaceChildren(state.tagView === "stats" ? tagStatsSection() : matchOrderSection(todo));
     renderPlayerSuggestions();
     renderLastMarked();
     renderTimeline();
@@ -2944,7 +2947,26 @@ function renderTags() {
 
 function renderTagViewSwitch() {
   $("#tagViewMatch").setAttribute("aria-pressed", String(state.tagView === "match"));
-  $("#tagViewGroups").setAttribute("aria-pressed", String(state.tagView !== "match"));
+  $("#tagViewGroups").setAttribute("aria-pressed", String(state.tagView === "groups"));
+  $("#tagViewStats").setAttribute("aria-pressed", String(state.tagView === "stats"));
+}
+
+// The Stats view of the Tag screen: the same tables as Watch, from this video's moments as they are now.
+function tagStatsSection() {
+  const section = document.createElement("section");
+  section.className = "tag-stats";
+  const untyped = state.tags.filter((tag) => !isComplete(tag)).length;
+  if (untyped) {
+    const note = document.createElement("p");
+    note.className = "stats-hint";
+    note.textContent = `${plural(untyped, "moment")} without a type ${untyped === 1 ? "isn't" : "aren't"} counted.`;
+    section.append(note);
+  }
+  const body = document.createElement("div");
+  body.className = "tag-stats-body";
+  renderStats(body, state.tags.filter(isComplete).sort(byTime), activeTeamId(), null);
+  section.append(body);
+  return section;
 }
 
 function setTagView(view) {
@@ -4375,12 +4397,13 @@ $("#pauseOnMark").addEventListener("change", () => {
 });
 try {
   const savedView = window.localStorage.getItem(tagViewStorageKey);
-  if (savedView === "match" || savedView === "groups") state.tagView = savedView;
+  if (["match", "groups", "stats"].includes(savedView)) state.tagView = savedView;
 } catch {
   // Default: Match order.
 }
 $("#tagViewMatch").addEventListener("click", () => setTagView("match"));
 $("#tagViewGroups").addEventListener("click", () => setTagView("groups"));
+$("#tagViewStats").addEventListener("click", () => setTagView("stats"));
 $("#keysHelpButton").addEventListener("mousedown", (event) => event.preventDefault());
 $("#keysHelpButton").addEventListener("click", () => setKeysHelp($("#keysHelp").hidden));
 document.addEventListener("click", (event) => {
