@@ -399,6 +399,7 @@ function serializeTag(tag) {
     ...(typeof tag.liveAt === "number" ? { liveAt: tag.liveAt, liveHalf: tag.liveHalf === 2 ? 2 : 1 } : {}),
     ...(tag.liveAnchor ? { liveAnchor: tag.liveAnchor } : {}),
     ...(passCountText(tag) ? { passCount: tag.passCount } : {}),
+    ...(isOpponent(tag) ? { side: "opponent" } : {}),
   };
 }
 
@@ -1393,6 +1394,11 @@ function tagEventLabel(tag) {
   return "Unclassified moment";
 }
 
+// A moment is ours unless it is marked as the opponent's (side "opponent"), e.g. their goal.
+function isOpponent(tag) {
+  return tag?.side === "opponent";
+}
+
 // "6 passes" for a pass sequence with a count, otherwise "".
 function passCountText(tag) {
   const count = tag?.eventType === "pass_sequence" ? tag.passCount : 0;
@@ -1401,7 +1407,7 @@ function passCountText(tag) {
 
 function watchEventTitle(tag) {
   const label = tagEventLabel(tag);
-  const details = [passCountText(tag), tag.playerNames, tag.note].filter(Boolean).join(" · ");
+  const details = [isOpponent(tag) ? "Opponent" : "", passCountText(tag), tag.playerNames, tag.note].filter(Boolean).join(" · ");
   return details ? `${label} — ${details}` : label;
 }
 
@@ -1479,6 +1485,7 @@ function refreshWatchControls() {
 function clipPeople(tag, teamId) {
   const { ids, others } = tagPlayers(tag, teamId);
   return [
+    ...(isOpponent(tag) ? [{ key: "side:opponent", label: "Opponent" }] : []),
     ...ids.filter((id) => state.memberById.has(id)).map((id) => ({ key: `id:${id}`, label: memberLabel(state.memberById.get(id)) })),
     ...others.map((name) => ({ key: `name:${normalizeName(name)}`, label: name })),
   ];
@@ -1727,9 +1734,26 @@ function renderStats(container, all, teamId, play) {
   tableWrap.className = "stats-table-wrap";
   const table = document.createElement("table");
   table.className = "stats-table";
-  const columns = halfTime === null ? ["Event", "Total"] : ["Event", "1st half", "2nd half", "Total"];
-  const head = table.createTHead().insertRow();
-  for (const name of columns) {
+  // With opponent moments, each count is shown for Us and for the Opponent.
+  const sides = counted.some(isOpponent)
+    ? [["Us", (tags) => tags.filter((tag) => !isOpponent(tag))], ["Opponent", (tags) => tags.filter(isOpponent)]]
+    : [["", (tags) => tags]];
+  const perSide = halfTime === null ? ["Total"] : ["1st half", "2nd half", "Total"];
+  const thead = table.createTHead();
+  if (sides.length > 1) {
+    const groups = thead.insertRow();
+    groups.append(document.createElement("th"));
+    for (const [side] of sides) {
+      const cell = document.createElement("th");
+      cell.scope = "colgroup";
+      cell.colSpan = perSide.length;
+      cell.className = "stats-side";
+      cell.textContent = side;
+      groups.append(cell);
+    }
+  }
+  const head = thead.insertRow();
+  for (const name of ["Event", ...sides.flatMap(() => perSide)]) {
     const cell = document.createElement("th");
     cell.scope = "col";
     cell.textContent = name;
@@ -1743,11 +1767,15 @@ function renderStats(container, all, teamId, play) {
     name.scope = "row";
     name.textContent = label;
     row.append(name);
-    if (halfTime !== null) {
-      row.insertCell().append(statCount(inHalf(tags, 1), `${label}, 1st half`, play));
-      row.insertCell().append(statCount(inHalf(tags, 2), `${label}, 2nd half`, play));
+    for (const [side, pick] of sides) {
+      const mine = pick(tags);
+      const about = side ? `${label} (${side})` : label;
+      if (halfTime !== null) {
+        row.insertCell().append(statCount(inHalf(mine, 1), `${about}, 1st half`, play));
+        row.insertCell().append(statCount(inHalf(mine, 2), `${about}, 2nd half`, play));
+      }
+      row.insertCell().append(statCount(mine, about, play));
     }
-    row.insertCell().append(statCount(tags, label, play));
   };
   for (const [label, tags] of typeRows) addRow(label, tags);
   addRow("All events", counted, "stats-total");
@@ -1757,7 +1785,8 @@ function renderStats(container, all, teamId, play) {
   // other names are matched ignoring case and extra spaces. A moment naming two players counts for both.
   const players = new Map();
   const unnamed = [];
-  for (const tag of counted) {
+  // Players are ours: opponent moments are counted in the table above only.
+  for (const tag of counted.filter((item) => !isOpponent(item))) {
     const { ids, others } = tagPlayers(tag, teamId);
     const people = [];
     for (const id of ids) {
@@ -1809,7 +1838,7 @@ function renderStats(container, all, teamId, play) {
     return item;
   }));
 
-  container.replaceChildren(eventsHeading, hint, tableWrap, ...passStats(counted, halfTime, inHalf, play), playersHeading, playerList);
+  container.replaceChildren(eventsHeading, hint, tableWrap, ...passStats(counted.filter((tag) => !isOpponent(tag)), halfTime, inHalf, play), playersHeading, playerList);
 }
 
 // Passing: how many pass sequences, how long they were, and the longer ones to watch back.
@@ -2567,6 +2596,21 @@ function renderTagRow(tag, done) {
   picker.append(chips, addPlayer, playerNames);
   let showOther = false;
 
+  const sideRow = document.createElement("div");
+  sideRow.className = "side-row";
+  const opponentButton = document.createElement("button");
+  opponentButton.type = "button";
+  opponentButton.className = "opponent-toggle";
+  opponentButton.textContent = "Opponent";
+  opponentButton.title = "The other team's moment, e.g. their goal (key X for the last mark)";
+  opponentButton.addEventListener("click", () => {
+    const current = state.tags.find((item) => item.id === tag.id);
+    updateTag(tag.id, { side: isOpponent(current) ? null : "opponent" });
+    refreshRow();
+    renderTimeline();
+  });
+  sideRow.append(opponentButton);
+
   function currentTag() {
     return state.tags.find((item) => item.id === tag.id) || tag;
   }
@@ -2762,14 +2806,17 @@ function renderTagRow(tag, done) {
     if (!done) doneButton.disabled = !complete;
     summaryLabel.textContent = complete ? [tagEventLabel(current), passCountText(current)].filter(Boolean).join(" · ") : "Needs a type";
     const { ids, others } = tagPlayers(current, activeTeamId());
-    const names = [...ids.map((id) => state.memberById.get(id)).filter(Boolean).map(memberLabel), ...others];
+    const names = [...(isOpponent(current) ? ["Opponent"] : []), ...ids.map((id) => state.memberById.get(id)).filter(Boolean).map(memberLabel), ...others];
+    row.classList.toggle("opponent", isOpponent(current));
+    opponentButton.setAttribute("aria-pressed", String(isOpponent(current)));
+    opponentButton.setAttribute("aria-label", `${isOpponent(current) ? "Marked as the opponent's" : "Mark as the opponent's"} moment at ${time}`);
     summaryPlayers.textContent = names.length ? names.join(", ") : "";
     summaryPlayers.hidden = !names.length;
     summaryMark.textContent = isDone(current) ? "✓" : (expanded ? "▾" : "▸");
     summaryMain.setAttribute("aria-label", `${time} ${summaryLabel.textContent}${names.length ? `, ${names.join(", ")}` : ""}. ${expanded ? "Close" : "Edit"} this moment`);
   }
 
-  details.append(timeEditor, status, quickTypes, eventType, customWrap, passWrap, picker, note, rowActions);
+  details.append(timeEditor, status, quickTypes, eventType, customWrap, passWrap, sideRow, picker, note, rowActions);
   editor.append(timeColumn, details, deleteButton);
   row.append(summary, editor);
   refreshRow();
@@ -3042,8 +3089,9 @@ function renderTimeline() {
     tick.className = "timeline-tick";
     if (!isComplete(tag)) tick.classList.add("needs-type");
     else if (tag.eventType === "goal") tick.classList.add("goal");
+    tick.classList.toggle("opponent", isOpponent(tag));
     tick.style.left = timelinePercent(tag.timestampSeconds);
-    const label = `${formatTime(tag.timestampSeconds)} ${isComplete(tag) ? tagEventLabel(tag) : "needs a type"}`;
+    const label = `${formatTime(tag.timestampSeconds)} ${isComplete(tag) ? tagEventLabel(tag) : "needs a type"}${isOpponent(tag) ? " (opponent)" : ""}`;
     tick.title = label;
     tick.setAttribute("aria-label", `Jump to ${label}`);
     tick.addEventListener("mousedown", (event) => event.preventDefault());
@@ -3209,7 +3257,8 @@ function renderLastMarked() {
   }
   const players = (tag.playerIds || []).map((id) => state.memberById.get(id)).filter(Boolean).map(memberLabel);
   const passes = passCountText(tag);
-  $("#lastMarkedText").textContent = `Last: ${isComplete(tag) ? tagEventLabel(tag) : "untyped moment"}${passes ? ` (${passes})` : ""} at ${formatTime(tag.timestampSeconds)}${players.length ? ` · ${players.join(", ")}` : ""}`;
+  const who = [...(isOpponent(tag) ? ["Opponent"] : []), ...players];
+  $("#lastMarkedText").textContent = `Last: ${isComplete(tag) ? tagEventLabel(tag) : "untyped moment"}${passes ? ` (${passes})` : ""} at ${formatTime(tag.timestampSeconds)}${who.length ? ` · ${who.join(", ")}` : ""}`;
   $("#lastMarkedNumber").textContent = state.numberBuffer ? `#${state.numberBuffer}` : "";
   $("#lastMarkedNumber").hidden = !state.numberBuffer;
   const hasSquad = teamPlayers(activeTeamId()).length > 0;
@@ -3301,6 +3350,16 @@ function endPassChain() {
   notify(dropped
     ? `Pass sequence of ${passCountText(chain)} not kept: the minimum is ${min} (Tagging options).`
     : `Pass sequence at ${formatTime(chain.timestampSeconds)}: ${passCountText(chain)}.`, "success");
+}
+
+// X: the moment just marked was the opponent's (press again to undo).
+function toggleOpponentLast() {
+  const tag = state.tags.find((item) => item.id === state.lastMarkedId);
+  if (!tag) return;
+  updateTag(tag.id, { side: isOpponent(tag) ? null : "opponent" });
+  renderTags();
+  const updated = state.tags.find((item) => item.id === tag.id);
+  notify(`${isComplete(updated) ? tagEventLabel(updated) : "Moment"} at ${formatTime(updated.timestampSeconds)} ${isOpponent(updated) ? "marked as the opponent's" : "is ours again"}.`, "success");
 }
 
 function undoLastMark() {
@@ -4532,6 +4591,8 @@ window.addEventListener("keydown", (event) => {
       setKeysHelp(false);
       renderLastMarked();
     },
+    x: () => toggleOpponentLast(),
+    X: () => toggleOpponentLast(),
     p: () => passChainPress(),
     P: () => passChainPress(),
     l: () => endPassChain(),
@@ -5136,9 +5197,16 @@ function renderLive() {
     liveTypeButton("More types…", `search all ${pickableTypes().length}`, liveMoreTypes, "more"),
   );
   const players = teamPlayers(live.teamId);
-  $("#livePlayersLabel").hidden = !players.length;
-  $("#livePlayers").hidden = !players.length;
-  $("#livePlayers").replaceChildren(...players.map((player) => {
+  const opponent = document.createElement("button");
+  opponent.type = "button";
+  opponent.className = "live-player live-opponent";
+  opponent.textContent = "Opponent";
+  opponent.disabled = !last;
+  opponent.classList.toggle("on", isOpponent(last));
+  opponent.setAttribute("aria-pressed", String(isOpponent(last)));
+  opponent.setAttribute("aria-label", "The last event was the opponent's");
+  opponent.addEventListener("click", liveToggleOpponent);
+  $("#livePlayers").replaceChildren(opponent, ...players.map((player) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "live-player";
@@ -5156,7 +5224,7 @@ function renderLive() {
   if (last) {
     const names = (last.playerIds || []).map((id) => state.memberById.get(id)).filter(Boolean).map(memberLabel);
     $("#liveLastTime").textContent = `LAST · ${formatTime(liveMatchSeconds(last.liveAt))}`;
-    $("#liveLastText").textContent = [isComplete(last) ? tagEventLabel(last) : "Moment (type later)", passCountText(last), ...names].filter(Boolean).join(" · ");
+    $("#liveLastText").textContent = [isComplete(last) ? tagEventLabel(last) : "Moment (type later)", passCountText(last), isOpponent(last) ? "Opponent" : "", ...names].filter(Boolean).join(" · ");
   }
   const chain = live.tags.find((tag) => tag.id === live.chainId);
   $("#livePassStart").hidden = !!chain;
@@ -5294,6 +5362,13 @@ function liveStopPasses() {
   renderLive();
   const { chain, dropped, min } = closed;
   notifyLive(dropped ? `Pass sequence of ${passCountText(chain)} not kept (minimum ${min}).` : `Pass sequence: ${passCountText(chain)}.`, "success");
+}
+
+function liveToggleOpponent() {
+  const tag = liveLastTag();
+  if (!tag) return;
+  tag.side = isOpponent(tag) ? null : "opponent";
+  liveChanged([tag.id]);
 }
 
 function liveTogglePlayer(playerId) {

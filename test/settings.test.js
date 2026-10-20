@@ -187,3 +187,61 @@ test("Tag screen Stats view: counts this video's moments as they are, untyped on
   await page.click("#tagViewMatch");
   assert.ok(page.$("#tagList .tag-summary-main"));
 });
+
+test("opponent moments: Opponent button and the X key, saved, shown, and counted separately in Stats", async () => {
+  const tags = [moment("s", 10, "start_of_game"), moment("g", 300, "goal"), moment("h", 1800, "half_time")];
+  const page = await openPage({ tables: standardTables({ inProgressTags: tags }) });
+  await page.openFromLibrary("Test FC vs Rivals");
+  page.vimeo.current.time = 2500;
+  await page.press("y");
+  await page.press("x");
+  const theirs = page.state.tags.find((tag) => tag.id === page.state.lastMarkedId);
+  assert.equal(theirs.side, "opponent");
+  assert.match(page.text("#lastMarkedText"), /Goal at 41:25 · Opponent/);
+  assert.match(page.text(`[data-tag-id="${theirs.id}"] .tag-summary-players`), /Opponent/);
+  assert.match(page.$(`#timelineBar .timeline-tick.opponent`).title, /\(opponent\)/);
+
+  // The button in the moment's editor toggles it too.
+  await page.click('[data-tag-id="g"] .tag-summary-main');
+  await page.click('[data-tag-id="g"] .opponent-toggle');
+  assert.equal(page.state.tags.find((tag) => tag.id === "g").side, "opponent");
+  await page.click('[data-tag-id="g"] .opponent-toggle');
+  assert.equal(page.state.tags.find((tag) => tag.id === "g").side, null);
+
+  await page.click("#saveVideoButton");
+  const saved = page.db.videos.find((video) => video.id === "dddddddd-0000-4000-8000-000000000001").tags;
+  assert.equal(saved.find((tag) => tag.id === theirs.id).side, "opponent");
+  assert.equal(saved.find((tag) => tag.id === "g").side, undefined, "ours is not stored at all");
+
+  await page.click("#tagViewStats");
+  const stats = page.text("#tagList");
+  assert.match(stats, /Us\s*Opponent/);
+  assert.match(stats, /Goal\s*1\s*0\s*1\s*0\s*1\s*1/, "us: 1st 1, 2nd 0, total 1; opponent: 1st 0, 2nd 1, total 1");
+  assert.doesNotMatch(page.text("#tagList .stats-players"), /Opponent/);
+});
+
+test("live: the Opponent button marks the last event as theirs; Choose clips can filter to the opponent", async () => {
+  const page = await openPage();
+  let now = new Date(2026, 9, 20, 10, 0, 0).getTime();
+  page.app.liveClock.now = () => now;
+  await page.click("#liveMatchButton");
+  await page.type("#liveName", "Live match");
+  page.$("#liveSetup").dispatchEvent(new page.window.Event("submit", { bubbles: true, cancelable: true }));
+  await page.settle();
+  assert.ok(page.$("#livePlayers .live-opponent").disabled, "needs an event first");
+  now += 300000;
+  page.$$("#liveTypes .live-type").find((button) => button.firstChild.textContent === "Corner").click();
+  await page.settle();
+  await page.click("#livePlayers .live-opponent");
+  assert.equal(page.state.live.tags.find((tag) => tag.eventType === "corner").side, "opponent");
+  assert.match(page.text("#liveLast"), /Corner · Opponent/);
+  assert.equal(page.$("#livePlayers .live-opponent").getAttribute("aria-pressed"), "true");
+
+  const tags = [moment("s", 10, "start_of_game"), moment("a", 100, "corner"), moment("b", 200, "corner", { side: "opponent" })];
+  const watch = await openPage({ tables: standardTables({ publishedTags: tags }) });
+  await watch.tab("watch");
+  await watch.openInWatch("Test FC vs Okanagan");
+  await watch.click("#chooseClipsButton");
+  await watch.choose("#clipFilterPlayer", "side:opponent");
+  assert.match(watch.text("#watchEventCount"), /1 of 3/);
+});

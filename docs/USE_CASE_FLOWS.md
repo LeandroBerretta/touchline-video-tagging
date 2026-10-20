@@ -457,6 +457,12 @@ Under **Tagging options** in the Tag screen, remembered in this browser:
 In Watch, Choose clips can show only pass sequences of at least N passes,
 and Stats › Passing gives the average time between sequences, per half.
 
+**Opponent moments:** a moment is ours unless marked as the opponent's
+(`side: "opponent"`): the **Opponent** button on the moment, **X** for the
+last mark on video, or **Opponent** in Live mode's Who row. Stats show Us and
+Opponent counts side by side (By player and Passing count ours only); Choose
+clips' player filter has an Opponent option.
+
 The Tag screen has a **Stats** view next to Match order and To do & Done:
 the same tables as Watch, from the open video's moments with a type, updated
 as you tag (numbers there don't play clips).
