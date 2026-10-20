@@ -271,3 +271,20 @@ test("two timelines: events on the first; pass sequences and Other moments on th
   await plain.openFromLibrary("Test FC vs Rivals");
   assert.equal(plain.$("#timelinePassRow").hidden, true);
 });
+
+test("Choose clips: the passes filter and the type filter never cancel each other out", async () => {
+  const tags = [moment("s", 10, "start_of_game"), moment("g", 50, "goal"), moment("p", 100, "pass_sequence", { passCount: 12 })];
+  const page = await openPage({ tables: standardTables({ publishedTags: tags }) });
+  await page.tab("watch");
+  await page.openInWatch("Test FC vs Okanagan");
+  await page.click("#chooseClipsButton");
+  await page.choose("#clipFilterPasses", "10");
+  await page.choose("#clipFilterType", "Goal");
+  assert.equal(page.state.clipFilterPasses, 0, "choosing Goal drops the passes filter");
+  assert.equal(page.$("#clipFilterPasses").hidden, true);
+  assert.match(page.text("#watchEventCount"), /1 of 3/);
+  await page.choose("#clipFilterType", "");
+  await page.choose("#clipFilterPasses", "10");
+  assert.match(page.text("#watchEventCount"), /1 of 3/);
+  assert.equal(page.$("#watchNoEvents").hidden, true);
+});

@@ -1527,7 +1527,9 @@ function renderClipFilters(record) {
   // Passes: only offered when the video has pass sequences, up to its longest one.
   const longest = Math.max(0, ...all.filter((tag) => tag.eventType === "pass_sequence").map((tag) => tag.passCount || 0));
   const passSelect = $("#clipFilterPasses");
-  passSelect.hidden = !longest;
+  // The passes filter is about pass sequences only, so it is offered with no type or Pass sequence chosen.
+  const passLabel = eventTypeName("pass_sequence");
+  passSelect.hidden = !longest || (!!state.clipFilterType && state.clipFilterType !== passLabel);
   const steps = [2, 3, 4, 5, 6, 8, 10, 15].filter((count) => count <= longest);
   if (!steps.includes(state.clipFilterPasses)) state.clipFilterPasses = 0;
   passSelect.replaceChildren(new Option("Any passes", "0"), ...steps.map((count) => new Option(`Pass sequences of ${count}+`, String(count))));
@@ -4368,11 +4370,15 @@ $("#selectAllTypesButton").addEventListener("click", () => {
 });
 $("#clipFilterType").addEventListener("change", () => {
   state.clipFilterType = $("#clipFilterType").value;
+  // Another type can't have a number of passes: drop the passes filter rather than match nothing.
+  if (state.clipFilterType && state.clipFilterType !== eventTypeName("pass_sequence")) state.clipFilterPasses = 0;
   const record = currentWatchRecord();
   if (record) renderWatchEvents(record);
 });
 $("#clipFilterPasses").addEventListener("change", () => {
   state.clipFilterPasses = Number($("#clipFilterPasses").value) || 0;
+  // A number of passes means pass sequences: show that type rather than another one.
+  if (state.clipFilterPasses && state.clipFilterType && state.clipFilterType !== eventTypeName("pass_sequence")) state.clipFilterType = "";
   const record = currentWatchRecord();
   if (record) renderWatchEvents(record);
 });

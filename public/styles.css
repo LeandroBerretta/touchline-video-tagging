@@ -672,3 +672,6 @@ body.live-open .workspace { width: min(100% - 32px, 520px); padding: 14px 0 28px
 .timeline-second { display: grid; gap: 4px; }
 .timeline-row-label { color: var(--muted); font-size: 12px; }
 .timeline-bar-second { height: 24px; }
+
+/* Messages inside the Watch event list line up with the rest of the panel */
+.watch-view > .empty-state { margin: 0; border-top: 1px solid var(--line); padding: 14px; }
