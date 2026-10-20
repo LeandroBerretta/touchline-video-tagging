@@ -80,6 +80,8 @@ const typeLeadsStorageKey = "touchline.typeLeads";
 const defaultTypeLeads = { throw_in: 3, shot_on_target: 10, shot_off_target: 10, foul_won: 5, foul_conceded: 5, goal: 15, cross: 7 };
 // Types left off the timelines under the video: too frequent to be worth a tick.
 const timelineHiddenTypes = new Set(["throw_in"]);
+// These get their own second bar under the video, so the main bar shows the match's events clearly.
+const secondTimelineTypes = new Set(["pass_sequence", "other"]);
 const pauseOnMarkStorageKey = "touchline.pauseOnMark";
 const tagViewStorageKey = "touchline.tagView";
 const watchChoosingStorageKey = "touchline.watchChoosing";
@@ -2193,7 +2195,7 @@ function renderPlaylistStatus() {
   const playlist = state.playlist;
   $("#playlistBar").hidden = !playlist;
   const currentId = playlist?.clips[playlist.index]?.tag.id;
-  document.querySelectorAll(".watch-event, #watchTimelineBar .timeline-tick").forEach((button) => {
+  document.querySelectorAll(".watch-event, #watchTimelineBar .timeline-tick, #watchTimelinePassBar .timeline-tick").forEach((button) => {
     button.classList.toggle("playing", !!currentId && button.dataset.tagId === currentId);
   });
   document.body.classList.toggle("playlist-playing", !!playlist);
@@ -2300,7 +2302,9 @@ async function selectWatchVideo(recordId) {
     });
     player.on("timeupdate", ({ seconds }) => {
       if (loadId === state.watchLoadId && state.watchDuration) {
-        $("#watchTimelineNow").style.left = `${Math.min(100, Math.max(0, (seconds / state.watchDuration) * 100))}%`;
+        const left = `${Math.min(100, Math.max(0, (seconds / state.watchDuration) * 100))}%`;
+        $("#watchTimelineNow").style.left = left;
+        $("#watchTimelinePassNow").style.left = left;
       }
       const playlist = state.playlist;
       if (loadId !== state.watchLoadId || !playlist || playlist.seeking) return;
@@ -3069,21 +3073,25 @@ function timelinePercent(seconds) {
 // Ticks under the video for every moment (markers aside): green when done, amber when it still needs a
 // type, white and taller for goals. Click a tick, or anywhere on the bar, to jump there.
 function renderTimeline() {
-  const bar = $("#timelineBar");
+  const bars = [$("#timelineBar"), $("#timelinePassBar")];
   const show = !!state.activeRecord && state.videoDuration > 0;
   $("#timeline").hidden = !show;
-  bar.querySelectorAll(".timeline-tick, .timeline-half").forEach((element) => element.remove());
+  for (const bar of bars) bar.querySelectorAll(".timeline-tick, .timeline-half").forEach((element) => element.remove());
   if (!show) return;
   const halfTime = state.tags.find((tag) => tag.eventType === "half_time")?.timestampSeconds ?? null;
   $("#timelineHalf").textContent = halfTime === null ? "" : `Half-time ${formatTime(halfTime)}`;
   if (halfTime !== null) {
-    const line = document.createElement("div");
-    line.className = "timeline-half";
-    line.style.left = timelinePercent(halfTime);
-    bar.append(line);
+    for (const bar of bars) {
+      const line = document.createElement("div");
+      line.className = "timeline-half";
+      line.style.left = timelinePercent(halfTime);
+      bar.append(line);
+    }
   }
+  $("#timelinePassRow").hidden = !state.tags.some((tag) => secondTimelineTypes.has(tag.eventType));
   for (const tag of [...state.tags].sort(byTime)) {
     if (markerTypes.has(tag.eventType) || timelineHiddenTypes.has(tag.eventType)) continue;
+    const bar = bars[secondTimelineTypes.has(tag.eventType) ? 1 : 0];
     const tick = document.createElement("button");
     tick.type = "button";
     tick.className = "timeline-tick";
@@ -3110,20 +3118,25 @@ function renderWatchTimeline(record) {
   const duration = state.watchDuration;
   const show = !!record && duration > 0;
   $("#watchTimeline").hidden = !show;
-  bar.querySelectorAll(".timeline-tick, .timeline-half").forEach((element) => element.remove());
+  const bars = [bar, $("#watchTimelinePassBar")];
+  for (const item of bars) item.querySelectorAll(".timeline-tick, .timeline-half").forEach((element) => element.remove());
   if (!show) return;
   const percent = (seconds) => `${Math.min(100, Math.max(0, (seconds / duration) * 100))}%`;
   const tags = watchEvents(record);
   const halfTime = tags.find((tag) => tag.eventType === "half_time")?.timestampSeconds ?? null;
   $("#watchTimelineHalf").textContent = halfTime === null ? "" : `Half-time ${formatTime(halfTime)}`;
   if (halfTime !== null) {
-    const line = document.createElement("div");
-    line.className = "timeline-half";
-    line.style.left = percent(halfTime);
-    bar.append(line);
+    for (const item of bars) {
+      const line = document.createElement("div");
+      line.className = "timeline-half";
+      line.style.left = percent(halfTime);
+      item.append(line);
+    }
   }
+  $("#watchTimelinePassRow").hidden = !tags.some((tag) => secondTimelineTypes.has(tag.eventType));
   for (const tag of tags) {
     if (markerTypes.has(tag.eventType) || timelineHiddenTypes.has(tag.eventType)) continue;
+    const target = bars[secondTimelineTypes.has(tag.eventType) ? 1 : 0];
     const tick = document.createElement("button");
     tick.type = "button";
     tick.className = "timeline-tick";
@@ -3139,7 +3152,7 @@ function renderWatchTimeline(record) {
       event.stopPropagation();
       playWatchMoment(tag.timestampSeconds);
     });
-    bar.append(tick);
+    target.append(tick);
   }
   renderPlaylistStatus();
 }
@@ -3651,7 +3664,10 @@ function setPlayingLabel(playing) {
 }
 
 function updatePlayerClock(seconds) {
-  if (state.videoDuration) $("#timelineNow").style.left = timelinePercent(seconds);
+  if (state.videoDuration) {
+    $("#timelineNow").style.left = timelinePercent(seconds);
+    $("#timelinePassNow").style.left = timelinePercent(seconds);
+  }
   $("#playerClock").textContent = state.videoDuration
     ? `${formatTime(seconds)} / ${formatTime(state.videoDuration)}`
     : formatTime(seconds);
@@ -4476,19 +4492,23 @@ $("#editDetailsButton").addEventListener("click", () => {
   if ($("#tagPanel").classList.contains("editing-details")) $("#videoName").focus();
 });
 $("#videoName").addEventListener("input", () => renderVideoHeader());
-$("#watchTimelineBar").addEventListener("click", (event) => {
-  if (!state.watchPlayer || !state.watchDuration || !state.watchReady) return;
-  const box = $("#watchTimelineBar").getBoundingClientRect();
-  const seconds = ((event.clientX - box.left) / box.width) * state.watchDuration;
-  state.watchPlayer.setCurrentTime(Math.max(0, Math.min(state.watchDuration, seconds))).catch(() => {});
-});
-$("#timelineBar").addEventListener("mousedown", (event) => event.preventDefault());
-$("#timelineBar").addEventListener("click", (event) => {
-  if (!state.player || !state.videoDuration) return;
-  const box = $("#timelineBar").getBoundingClientRect();
-  const seconds = ((event.clientX - box.left) / box.width) * state.videoDuration;
-  state.player.setCurrentTime(Math.max(0, Math.min(state.videoDuration, seconds))).catch(() => {});
-});
+for (const selector of ["#watchTimelineBar", "#watchTimelinePassBar"]) {
+  $(selector).addEventListener("click", (event) => {
+    if (!state.watchPlayer || !state.watchDuration || !state.watchReady) return;
+    const box = $(selector).getBoundingClientRect();
+    const seconds = ((event.clientX - box.left) / box.width) * state.watchDuration;
+    state.watchPlayer.setCurrentTime(Math.max(0, Math.min(state.watchDuration, seconds))).catch(() => {});
+  });
+}
+for (const selector of ["#timelineBar", "#timelinePassBar"]) {
+  $(selector).addEventListener("mousedown", (event) => event.preventDefault());
+  $(selector).addEventListener("click", (event) => {
+    if (!state.player || !state.videoDuration) return;
+    const box = $(selector).getBoundingClientRect();
+    const seconds = ((event.clientX - box.left) / box.width) * state.videoDuration;
+    state.player.setCurrentTime(Math.max(0, Math.min(state.videoDuration, seconds))).catch(() => {});
+  });
+}
 $("#lastMarkedUndo").addEventListener("mousedown", (event) => event.preventDefault());
 $("#lastMarkedUndo").addEventListener("click", undoLastMark);
 for (const selector of ["#passChainButton", "#passChainPlus", "#passChainMinus", "#passChainStop"]) {

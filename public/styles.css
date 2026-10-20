@@ -667,3 +667,8 @@ body.live-open .workspace { width: min(100% - 32px, 520px); padding: 14px 0 28px
 .live-opponent { grid-column: span 2; font-size: 14px; }
 .live-player.live-opponent.on { border-color: #8fb0ee; color: #101828; background: #8fb0ee; }
 .stats-side { text-align: center; color: #dce6dd; }
+
+/* Second timeline: pass sequences and Other moments */
+.timeline-second { display: grid; gap: 4px; }
+.timeline-row-label { color: var(--muted); font-size: 12px; }
+.timeline-bar-second { height: 24px; }

@@ -245,3 +245,29 @@ test("live: the Opponent button marks the last event as theirs; Choose clips can
   await watch.choose("#clipFilterPlayer", "side:opponent");
   assert.match(watch.text("#watchEventCount"), /1 of 3/);
 });
+
+test("two timelines: events on the first; pass sequences and Other moments on the second", async () => {
+  const tags = [
+    moment("s", 10, "start_of_game"),
+    moment("g", 300, "goal"),
+    moment("p", 400, "pass_sequence", { passCount: 4 }),
+    moment("o", 500, "other", { customEventType: "Great save" }),
+    moment("t", 600, "throw_in"),
+  ];
+  const page = await openPage({ tables: standardTables({ inProgressTags: tags, publishedTags: tags }) });
+  await page.openFromLibrary("Test FC vs Rivals");
+  const titles = (selector) => page.$$(`${selector} .timeline-tick`).map((tick) => tick.title.replace(/^\S+ /, ""));
+  assert.deepEqual(titles("#timelineBar"), ["Goal"]);
+  assert.deepEqual(titles("#timelinePassBar"), ["Pass sequence", "Great save"]);
+  assert.equal(page.$("#timelinePassRow").hidden, false);
+
+  await page.tab("watch");
+  await page.openInWatch("Test FC vs Okanagan");
+  assert.deepEqual(titles("#watchTimelineBar"), ["Goal"]);
+  assert.deepEqual(titles("#watchTimelinePassBar"), ["Pass sequence", "Great save"]);
+
+  // Without pass sequences or Other moments, the second bar stays out of the way.
+  const plain = await openPage();
+  await plain.openFromLibrary("Test FC vs Rivals");
+  assert.equal(plain.$("#timelinePassRow").hidden, true);
+});

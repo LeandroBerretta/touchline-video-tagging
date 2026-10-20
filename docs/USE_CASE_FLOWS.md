@@ -449,7 +449,9 @@ Under **Tagging options** in the Tag screen, remembered in this browser:
   Live setup screen): when a pass chain ends with fewer passes it is dropped.
   **Pass sequences under N passes › Delete them** on a video removes the
   short ones at once (with Undo).
-- Throw-ins are left off the timelines under the Tag and Watch videos.
+- Throw-ins are left off the timelines under the Tag and Watch videos. Pass
+  sequences and Other moments get a second bar, "Pass sequences & other",
+  under the main one (shown only when the video has some).
 - Fouls and hand balls are **won** (we get the free kick) or **conceded**;
   old Foul and Hand ball moments keep their names, and saved quick types
   carry over to both replacements.
