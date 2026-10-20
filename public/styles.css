@@ -675,3 +675,9 @@ body.live-open .workspace { width: min(100% - 32px, 520px); padding: 14px 0 28px
 
 /* Messages inside the Watch event list line up with the rest of the panel */
 .watch-view > .empty-state { margin: 0; border-top: 1px solid var(--line); padding: 14px; }
+
+/* Playlists view in Watch */
+.watch-playlists { border-top: 1px solid var(--line); padding: 12px 14px 16px; max-height: min(68vh, 680px); overflow: auto; }
+.watch-playlists .saved-playlists { margin: 0; border: 0; padding: 0; }
+.watch-playlists .empty-state { margin: 0; }
+.watch-view-switch .count-bubble { min-width: 20px; height: 20px; font-size: 11px; vertical-align: 1px; }

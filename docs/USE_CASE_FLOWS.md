@@ -320,6 +320,9 @@ and the current clip length (needs `database/003_playlists.sql`). Viewers can
 read a playlist only while its video is published; this is enforced by
 row-level security.
 
+Playlists have their own view in Watch, next to Events and Stats, with a
+count on its button; a playlist link opens that view.
+
 ```mermaid
 flowchart TD
   A[Admin ticks clips in Watch] --> B[Save as playlist: title, note]

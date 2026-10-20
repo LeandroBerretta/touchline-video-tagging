@@ -102,3 +102,30 @@ test("without the playlists table, the app still works and tells admins what to 
   assert.match(page.text("#savedPlaylists"), /003_playlists\.sql/);
   page.close();
 });
+
+test("playlists have their own view next to Events and Stats, with a count; a link opens that view", async () => {
+  const page = await startApp({ as: "viewer", tables: tablesWithPlaylist() });
+  await page.openInWatch("Test FC vs Okanagan");
+  assert.equal(page.text("#watchPlaylistsCount"), "1");
+  assert.equal(page.$("#watchPlaylistsView").hidden, true, "out of the way while browsing events");
+  assert.equal(page.$("#watchEventsView").hidden, false);
+  await page.click("#watchViewPlaylistsButton");
+  assert.equal(page.$("#watchPlaylistsView").hidden, false);
+  assert.equal(page.$("#watchEventsView").hidden, true);
+  assert.equal(page.$("#watchViewPlaylistsButton").getAttribute("aria-pressed"), "true");
+  assert.match(page.text("#savedPlaylists"), /Nine: finishing/);
+  page.close();
+
+  const linked = await startApp({ as: "viewer", tables: tablesWithPlaylist(), hash: `#playlist-${PLAYLIST_ID}` });
+  await settle(12);
+  assert.equal(linked.$("#watchPlaylistsView").hidden, false, "a playlist link lands on Playlists");
+  linked.close();
+
+  const none = await startApp({ tables: standardTables() });
+  await none.tab("watch");
+  await none.openInWatch("Test FC vs Okanagan");
+  await none.click("#watchViewPlaylistsButton");
+  assert.equal(none.text("#watchPlaylistsCount"), "0");
+  assert.match(none.text("#savedPlaylists"), /No playlists for this video yet/);
+  none.close();
+});

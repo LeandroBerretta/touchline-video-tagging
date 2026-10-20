@@ -629,6 +629,7 @@
             <div class="watch-view-switch" role="group" aria-label="Show">
               <button id="watchViewEventsButton" class="view-switch-button" type="button" aria-pressed="true">Events</button>
               <button id="watchViewStatsButton" class="view-switch-button" type="button" aria-pressed="false">Stats</button>
+              <button id="watchViewPlaylistsButton" class="view-switch-button" type="button" aria-pressed="false">Playlists <span id="watchPlaylistsCount" class="count-bubble">0</span></button>
             </div>
             <div class="clip-controls">
               <label class="clip-length-label" for="clipLength">
@@ -671,11 +672,13 @@
                 <button id="savePlaylistButton" class="button button-outline" type="button" hidden disabled>Save as playlist</button>
                 <button id="playSelectedButton" class="button button-primary" type="button" disabled>▶ Play selected</button>
               </div>
-              <section id="savedPlaylists" class="saved-playlists" aria-label="Saved playlists" hidden></section>
               <div id="watchGroups" class="watch-groups"></div>
               <p id="watchNoEvents" class="empty-state">This video has no tagged events yet.</p>
             </div>
             <div id="watchStatsView" class="watch-view watch-stats" hidden></div>
+            <div id="watchPlaylistsView" class="watch-view watch-playlists" hidden>
+              <section id="savedPlaylists" class="saved-playlists" aria-label="Saved playlists" hidden></section>
+            </div>
           </section>
         </div>
       </section>

@@ -1675,8 +1675,10 @@ function setWatchView(view) {
   state.watchView = view;
   $("#watchEventsView").hidden = view !== "events";
   $("#watchStatsView").hidden = view !== "stats";
+  $("#watchPlaylistsView").hidden = view !== "playlists";
   $("#watchViewEventsButton").setAttribute("aria-pressed", String(view === "events"));
   $("#watchViewStatsButton").setAttribute("aria-pressed", String(view === "stats"));
+  $("#watchViewPlaylistsButton").setAttribute("aria-pressed", String(view === "playlists"));
 }
 
 // A count that plays its clips back to back when clicked.
@@ -1982,12 +1984,19 @@ function renderSavedPlaylists(record) {
     return;
   }
   const playlists = state.playlists.filter((playlist) => playlist.videoId === record.id);
-  container.hidden = playlists.length === 0;
+  // Playlists have their own view (next to Events and Stats); its button shows how many there are.
+  $("#watchPlaylistsCount").textContent = playlists.length;
+  container.hidden = false;
   if (!playlists.length) {
-    container.replaceChildren();
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = isAdmin
+      ? "No playlists for this video yet. In Events, choose clips, tick some and use Save as playlist."
+      : "No playlists for this video yet.";
+    container.replaceChildren(empty);
     return;
   }
-  container.replaceChildren(groupHeading("h3", "Playlists", playlists.length), ...playlists.map((playlist) => {
+  container.replaceChildren(...playlists.map((playlist) => {
     const tags = playlistTags(playlist, record);
     const missing = playlist.tagIds.length - tags.length;
     const item = document.createElement("article");
@@ -2083,7 +2092,7 @@ async function savePlaylist(event) {
     state.playlists = [playlist, ...state.playlists];
     $("#playlistDialog").close();
     renderWatchEvents(record);
-    showNotice("#watchNotice", `Saved the playlist "${playlist.title}".`, "success", {
+    showNotice("#watchNotice", `Saved the playlist "${playlist.title}". Find it under Playlists.`, "success", {
       label: "Copy link",
       onClick: () => copyPlaylistLink(playlist),
     });
@@ -2110,7 +2119,7 @@ async function openLinkedPlaylist() {
   if (state.openingPlaylistId === id) return;
   state.openingPlaylistId = id;
   state.linkedPlaylistId = id;
-  setWatchView("events");
+  setWatchView("playlists");
   try {
     await selectWatchVideo(record.id);
   } finally {
@@ -4353,6 +4362,7 @@ $("#videoTeam").addEventListener("change", () => {
 });
 $("#watchViewEventsButton").addEventListener("click", () => setWatchView("events"));
 $("#watchViewStatsButton").addEventListener("click", () => setWatchView("stats"));
+$("#watchViewPlaylistsButton").addEventListener("click", () => setWatchView("playlists"));
 $("#savePlaylistButton").addEventListener("click", openPlaylistDialog);
 $("#playlistForm").addEventListener("submit", savePlaylist);
 $("#cancelPlaylistButton").addEventListener("click", () => $("#playlistDialog").close());
