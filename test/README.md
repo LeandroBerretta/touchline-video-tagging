@@ -56,6 +56,7 @@ was scheduled (`state.autosaveTimer`) and then runs it with
 | `playlists.test.js` | Saved playlists: save, play, copy link, open from a link, delete, missing table |
 | `live.test.js` | UC10 Live mode: start, quick types and shirt numbers, More types, no signal, half-time and end, reload, Waiting for video, attach, line up (kick-off, both halves, on-screen clock, nudge) |
 | `users.test.js` | Users tab: list, search, invite, resend, change role, password reset, remove, self-protection, setup message, invite-link welcome |
+| `settings.test.js` | Seconds before by type (video and live), minimum pass sequence, deleting short sequences, throw-ins off the timelines, Won / Conceded fouls, pass filter, time between sequences |
 | `static.test.js` | Page/code consistency, database access rules, no secrets or squad data committed, workflow and docs |
 
 ## Adding a test

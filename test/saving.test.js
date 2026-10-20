@@ -54,7 +54,7 @@ test("Re-publish sends changes live; a published video is never autosaved", asyn
   assert.match(page.text("#actionHint"), /re-publish/);
   await page.click("#publishVideoButton");
   await settle(6);
-  assert.ok(videoInDb(page, PUBLISHED_ID).tags.some((tag) => tag.eventType === "shot_on_target" && tag.timestampSeconds === 1997));
+  assert.ok(videoInDb(page, PUBLISHED_ID).tags.some((tag) => tag.eventType === "shot_on_target" && tag.timestampSeconds === 1990));
   page.close();
 });
 
@@ -110,7 +110,7 @@ test("autosave: a change schedules a quiet save of an In progress video", async 
   assert.equal(page.state.isDirty, false);
   assert.equal(page.$("#tagList").firstElementChild, redraws, "autosave doesn't redraw the moments list");
   assert.match(page.text("#saveHint"), /Saved automatically at/);
-  assert.ok(videoInDb(page, IN_PROGRESS_ID).tags.some((tag) => tag.eventType === "goal" && tag.timestampSeconds === 697));
+  assert.ok(videoInDb(page, IN_PROGRESS_ID).tags.some((tag) => tag.eventType === "goal" && tag.timestampSeconds === 685));
   page.close();
 });
 

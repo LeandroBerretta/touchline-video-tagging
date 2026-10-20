@@ -435,6 +435,28 @@ flowchart TD
   J --> K[In progress: review, add players, publish]
 ```
 
+## Tagging settings (per device)
+
+Under **Tagging options** in the Tag screen, remembered in this browser:
+
+- **Seconds before, by type** (`touchline.typeLeads`): throw-in 3, shot on
+  and off target 10, foul won and conceded 5, goal 15, cross 7, editable.
+  A moment of one of these types is saved that long before the press or tap,
+  on video (instead of the Mark setting) and live (where other types use the
+  tap time). Live, a type picked later from More types or Change moves the
+  moment to match; it never goes before kick-off or the second-half kick-off.
+- **Minimum pass sequence** (`touchline.minPasses`, default 3; also on the
+  Live setup screen): when a pass chain ends with fewer passes it is dropped.
+  **Pass sequences under N passes › Delete them** on a video removes the
+  short ones at once (with Undo).
+- Throw-ins are left off the timelines under the Tag and Watch videos.
+- Fouls and hand balls are **won** (we get the free kick) or **conceded**;
+  old Foul and Hand ball moments keep their names, and saved quick types
+  carry over to both replacements.
+
+In Watch, Choose clips can show only pass sequences of at least N passes,
+and Stats › Passing gives the average time between sequences, per half.
+
 ## UC11 Manage users (admin)
 
 The **Users** tab lists every Supabase Auth account with its role (Admin,

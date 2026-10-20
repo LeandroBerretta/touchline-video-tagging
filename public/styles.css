@@ -643,3 +643,11 @@ body.live-open .workspace { width: min(100% - 32px, 520px); padding: 14px 0 28px
 .user-section .form-hint { margin: 0; }
 .user-section button { justify-self: start; }
 .user-danger strong { color: var(--red); }
+
+/* Tagging options: minimum passes, seconds before by type; pass sequence clean-up */
+.tagging-options .option-row select, .pass-cleanup select { width: auto; padding: 6px 8px; font-size: 13px; }
+.type-leads { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px 14px; margin-top: 8px; }
+.type-lead { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.type-lead span { flex: 1; }
+.type-lead input { width: 64px; padding: 6px 8px; font-size: 13px; }
+.pass-cleanup { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 0; color: var(--muted); font-size: 13px; }

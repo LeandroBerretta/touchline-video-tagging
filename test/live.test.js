@@ -202,7 +202,7 @@ test("half-time stops the clock; the second half carries on from it; End match s
   await page.click(typeButton(page, "Shot on target"));
   const shot = userTags(page)[0];
   assert.equal(shot.liveHalf, 2);
-  assert.match(page.text("#liveLast"), /32:00/);
+  assert.match(page.text("#liveLast"), /31:50/, "a shot is saved 10 seconds before the tap");
   const restart = page.state.live.tags.find((tag) => tag.liveAnchor === "second_half");
   assert.equal(restart.eventType, "kick_off");
   assert.equal(restart.liveAt, at(38));
@@ -422,10 +422,14 @@ test("pass chain: the first tap starts a Pass sequence, each tap counts, Lost it
   await page.click("#livePassPlus");
   await page.click(typeButton(page, "Shot on target"));
   assert.equal(page.state.live.chainId, null, "a shot ends the chain");
-  assert.equal(userTags(page)[1].passCount, 2);
+  assert.ok(!userTags(page).some((tag) => tag.passCount === 2), "a 2-pass chain is under the minimum of 3 and not kept");
+
+  await page.click("#livePassStart");
+  await page.click("#livePassStop");
+  assert.match(page.text("#liveNotice"), /not kept \(minimum 3\)/);
   await page.app.syncLive();
   const saved = page.db.videos.find((video) => video.id === page.state.live.id).tags;
-  assert.deepEqual(saved.filter((tag) => tag.eventType === "pass_sequence").map((tag) => tag.passCount), [4, 2]);
+  assert.deepEqual(saved.filter((tag) => tag.eventType === "pass_sequence").map((tag) => tag.passCount), [4]);
   assert.equal(saved.find((tag) => tag.eventType === "shot_on_target").passCount, undefined);
 });
 

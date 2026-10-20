@@ -110,7 +110,7 @@ test("quick buttons, the Done button and Enter in a field move moments from To d
   await page.press("Enter");
   const second = page.state.lastMarkedId;
   await page.click(`[data-tag-id="${second}"] .tag-summary-main`);
-  await page.choose(`[data-tag-id="${second}"] .event-type`, "foul");
+  await page.choose(`[data-tag-id="${second}"] .event-type`, "foul_won");
   const note = page.$(`[data-tag-id="${second}"] .moment-note`);
   note.dispatchEvent(new page.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   await settle();
@@ -325,9 +325,11 @@ test("pass chain while tagging a video: P starts and counts, L ends, another mar
 
   await page.press("p");
   await page.press("p");
+  await page.press("p");
+  await page.press("p");
   await page.press("t");
   assert.equal(page.state.passChainId, null, "marking a shot ends the chain");
-  assert.equal(page.state.tags.filter((tag) => tag.eventType === "pass_sequence").map((tag) => tag.passCount).join(), "3,2");
+  assert.equal(page.state.tags.filter((tag) => tag.eventType === "pass_sequence").map((tag) => tag.passCount).join(), "3,4");
 
   await page.press("p");
   await page.press("Backspace");
@@ -337,6 +339,6 @@ test("pass chain while tagging a video: P starts and counts, L ends, another mar
   page.vimeo.current.time = 1100;
   await page.click("#saveVideoButton");
   const saved = page.db.videos.find((video) => video.id === IN_PROGRESS_ID).tags.filter((tag) => tag.eventType === "pass_sequence");
-  assert.deepEqual(saved.map((tag) => tag.passCount), [3, 2]);
+  assert.deepEqual(saved.map((tag) => tag.passCount), [3, 4]);
   page.close();
 });

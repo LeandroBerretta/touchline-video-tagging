@@ -28,8 +28,10 @@ const eventTypes = [
   ["throw_in", "Throw-in"],
   ["goal_kick", "Goal kick"],
   ["kick_off", "Kick-off"],
-  ["foul", "Foul"],
-  ["hand_ball", "Hand ball"],
+  ["foul_won", "Foul won"],
+  ["foul_conceded", "Foul conceded"],
+  ["hand_ball_won", "Hand ball won"],
+  ["hand_ball_conceded", "Hand ball conceded"],
   ["yellow_card", "Yellow card"],
   ["red_card", "Red card"],
   ["penalty", "Penalty"],
@@ -54,6 +56,8 @@ const retiredEventTypes = [
   ["tackle", "Tackle"],
   ["interception", "Interception"],
   ["block", "Block"],
+  ["foul", "Foul"],
+  ["hand_ball", "Hand ball"],
 ];
 // Markers frame the match (halves for stats) and are not counted as events.
 const markerTypes = new Set(["start_of_game", "half_time", "end_of_game"]);
@@ -64,6 +68,18 @@ const defaultQuickTypes = ["throw_in", "kick_off", "corner", "shot_off_target", 
 // Each quick type gets a key along the top letter row, in order; admins choose up to nine types.
 const quickKeys = ["q", "w", "e", "r", "t", "y", "u", "i", "o"];
 const quickTypesStorageKey = "touchline.quickTypes";
+// Quick types saved before a type was split carry over as its replacements.
+const replacedQuickTypes = { foul: ["foul_won", "foul_conceded"], hand_ball: ["hand_ball_won", "hand_ball_conceded"] };
+// Pass sequences shorter than this are not kept when the chain ends (0 keeps all). Per device.
+const minPassesStorageKey = "touchline.minPasses";
+const minPassesChoices = [0, 2, 3, 4, 5, 6];
+const defaultMinPasses = 3;
+// Moments of these types are saved this many seconds before the tap or key press, live and on video,
+// so their clips include the build-up. Other types use the Mark setting on video and the tap time live.
+const typeLeadsStorageKey = "touchline.typeLeads";
+const defaultTypeLeads = { throw_in: 3, shot_on_target: 10, shot_off_target: 10, foul_won: 5, foul_conceded: 5, goal: 15, cross: 7 };
+// Types left off the timelines under the video: too frequent to be worth a tick.
+const timelineHiddenTypes = new Set(["throw_in"]);
 const pauseOnMarkStorageKey = "touchline.pauseOnMark";
 const tagViewStorageKey = "touchline.tagView";
 const watchChoosingStorageKey = "touchline.watchChoosing";
@@ -114,6 +130,7 @@ const state = {
   watchChoosing: false,
   clipFilterType: "",
   clipFilterPlayer: "",
+  clipFilterPasses: 0,
   expandedTagId: "",
   changeCount: 0,
   dirtySince: null,
@@ -1468,13 +1485,14 @@ function clipPeople(tag, teamId) {
 }
 
 function clipFilterActive() {
-  return state.watchChoosing && (!!state.clipFilterType || !!state.clipFilterPlayer);
+  return state.watchChoosing && (!!state.clipFilterType || !!state.clipFilterPlayer || !!state.clipFilterPasses);
 }
 
 function matchesClipFilter(tag, teamId) {
   if (!clipFilterActive()) return true;
   if (state.clipFilterType && tagEventLabel(tag) !== state.clipFilterType) return false;
   if (state.clipFilterPlayer && !clipPeople(tag, teamId).some((person) => person.key === state.clipFilterPlayer)) return false;
+  if (state.clipFilterPasses && !(tag.eventType === "pass_sequence" && (tag.passCount || 0) >= state.clipFilterPasses)) return false;
   return true;
 }
 
@@ -1497,6 +1515,14 @@ function renderClipFilters(record) {
     .sort(([firstKey, first], [secondKey, second]) => (firstKey.startsWith("id:") === secondKey.startsWith("id:") ? first.localeCompare(second, undefined, { numeric: true }) : firstKey.startsWith("id:") ? -1 : 1))
     .map(([key, label]) => new Option(label, key)));
   playerSelect.value = state.clipFilterPlayer;
+  // Passes: only offered when the video has pass sequences, up to its longest one.
+  const longest = Math.max(0, ...all.filter((tag) => tag.eventType === "pass_sequence").map((tag) => tag.passCount || 0));
+  const passSelect = $("#clipFilterPasses");
+  passSelect.hidden = !longest;
+  const steps = [2, 3, 4, 5, 6, 8, 10, 15].filter((count) => count <= longest);
+  if (!steps.includes(state.clipFilterPasses)) state.clipFilterPasses = 0;
+  passSelect.replaceChildren(new Option("Any passes", "0"), ...steps.map((count) => new Option(`Pass sequences of ${count}+`, String(count))));
+  passSelect.value = String(state.clipFilterPasses);
 }
 
 function renderWatchEvents(record) {
@@ -1795,7 +1821,17 @@ function passStats(counted, halfTime, inHalf) {
   const longest = Math.max(...counts);
   const summary = document.createElement("p");
   summary.className = "stats-hint";
-  summary.textContent = `${total} passes in ${plural(sequences.length, "sequence")}. Longest: ${longest} passes. Average: ${(total / sequences.length).toFixed(1)}. Click a number to play those clips.`;
+  // Time from one sequence to the next, within each half (the half-time break is not a gap).
+  const gapsIn = (tags) => {
+    const times = tags.map((tag) => tag.timestampSeconds).sort((first, second) => first - second);
+    return times.slice(1).map((time, index) => time - times[index]);
+  };
+  const average = (values) => (values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null);
+  const halves = halfTime === null ? null : [gapsIn(inHalf(sequences, 1)), gapsIn(inHalf(sequences, 2))];
+  const gap = average(halves ? halves.flat() : gapsIn(sequences));
+  const gapText = gap === null ? ""
+    : ` Time between sequences: ${formatTime(gap)} on average${halves ? ` (1st half ${average(halves[0]) === null ? "–" : formatTime(average(halves[0]))}, 2nd half ${average(halves[1]) === null ? "–" : formatTime(average(halves[1]))})` : ""}.`;
+  summary.textContent = `${total} passes in ${plural(sequences.length, "sequence")}. Longest: ${longest} passes. Average: ${(total / sequences.length).toFixed(1)}.${gapText} Click a number to play those clips.`;
   const table = document.createElement("table");
   table.className = "stats-table";
   const columns = halfTime === null ? ["Sequences", "Total"] : ["Sequences", "1st half", "2nd half", "Total"];
@@ -2159,6 +2195,7 @@ async function selectWatchVideo(recordId) {
   state.selectedWatchId = record?.id || "";
   state.clipFilterType = "";
   state.clipFilterPlayer = "";
+  state.clipFilterPasses = 0;
   renderWatchVideoList();
   state.watchSelectedIds.clear();
   state.watchExpandedTypes.clear();
@@ -2823,6 +2860,7 @@ function groupOrder(tag) {
 
 function renderTags() {
   renderPassChain();
+  renderPassCleanup();
   $("#emptyTags").hidden = state.tags.length > 0;
   const todo = state.tags.filter((tag) => !isDone(tag));
   const done = state.tags.filter(isDone);
@@ -2976,7 +3014,7 @@ function renderTimeline() {
     bar.append(line);
   }
   for (const tag of [...state.tags].sort(byTime)) {
-    if (markerTypes.has(tag.eventType)) continue;
+    if (markerTypes.has(tag.eventType) || timelineHiddenTypes.has(tag.eventType)) continue;
     const tick = document.createElement("button");
     tick.type = "button";
     tick.className = "timeline-tick";
@@ -3015,7 +3053,7 @@ function renderWatchTimeline(record) {
     bar.append(line);
   }
   for (const tag of tags) {
-    if (markerTypes.has(tag.eventType)) continue;
+    if (markerTypes.has(tag.eventType) || timelineHiddenTypes.has(tag.eventType)) continue;
     const tick = document.createElement("button");
     tick.type = "button";
     tick.className = "timeline-tick";
@@ -3071,7 +3109,8 @@ function loadQuickTypes() {
     const saved = JSON.parse(window.localStorage.getItem(quickTypesStorageKey) || "null");
     if (Array.isArray(saved)) {
       // Keep the saved order: it decides which key each type gets.
-      const valid = [...new Set(saved)].filter((value) => value && value !== "other" && eventTypes.some(([type]) => type === value));
+      const valid = [...new Set(saved.flatMap((value) => replacedQuickTypes[value] ?? [value]))]
+        .filter((value) => value && value !== "other" && eventTypes.some(([type]) => type === value));
       if (valid.length) return valid.slice(0, quickKeys.length);
     }
   } catch {
@@ -3216,12 +3255,30 @@ function countVideoPass(step) {
   renderTags();
 }
 
-function endPassChain() {
+// Ends the chain. One shorter than the minimum (Tagging options) is not kept.
+function closeVideoChain() {
   const chain = passChainTag();
-  if (!chain) return;
   state.passChainId = null;
+  if (!chain) return null;
+  const min = minPasses();
+  if (min && chain.passCount < min) {
+    state.tags = state.tags.filter((tag) => tag.id !== chain.id);
+    if (state.lastMarkedId === chain.id) state.lastMarkedId = null;
+    setDirty();
+    renderTags();
+    return { chain, dropped: true, min };
+  }
+  return { chain, dropped: false, min };
+}
+
+function endPassChain() {
+  const closed = closeVideoChain();
+  if (!closed) return;
   renderPassChain();
-  notify(`Pass sequence at ${formatTime(chain.timestampSeconds)}: ${passCountText(chain)}.`, "success");
+  const { chain, dropped, min } = closed;
+  notify(dropped
+    ? `Pass sequence of ${passCountText(chain)} not kept: the minimum is ${min} (Tagging options).`
+    : `Pass sequence at ${formatTime(chain.timestampSeconds)}: ${passCountText(chain)}.`, "success");
 }
 
 function undoLastMark() {
@@ -3335,6 +3392,93 @@ function bulkBar(todo) {
   return bar;
 }
 
+function minPasses() {
+  try {
+    const saved = window.localStorage.getItem(minPassesStorageKey);
+    if (saved !== null && minPassesChoices.includes(Number(saved))) return Number(saved);
+  } catch {
+    // Storage unavailable: use the default.
+  }
+  return defaultMinPasses;
+}
+
+function setMinPasses(value) {
+  const number = minPassesChoices.includes(Number(value)) ? Number(value) : defaultMinPasses;
+  try {
+    window.localStorage.setItem(minPassesStorageKey, String(number));
+  } catch {
+    // Remembering the choice is a convenience only.
+  }
+  for (const selector of ["#minPasses", "#liveMinPasses"]) $(selector).value = String(number);
+  renderPassCleanup();
+}
+
+function typeLeads() {
+  const leads = { ...defaultTypeLeads };
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(typeLeadsStorageKey) || "{}");
+    for (const type of Object.keys(leads)) {
+      const value = saved?.[type];
+      if (Number.isInteger(value) && value >= 0 && value <= 60) leads[type] = value;
+    }
+  } catch {
+    // Damaged or unavailable: the defaults.
+  }
+  return leads;
+}
+
+// Seconds before the tap for this type, or null when the type has no time of its own.
+function typeLeadSeconds(eventType) {
+  const leads = typeLeads();
+  return Object.hasOwn(leads, eventType) ? leads[eventType] : null;
+}
+
+function renderTypeLeads() {
+  const leads = typeLeads();
+  $("#typeLeads").replaceChildren(...Object.keys(defaultTypeLeads).map((type) => {
+    const label = document.createElement("label");
+    label.className = "type-lead";
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "0";
+    input.max = "60";
+    input.inputMode = "numeric";
+    input.value = String(leads[type]);
+    input.dataset.type = type;
+    input.setAttribute("aria-label", `Seconds before for ${eventTypeName(type)}`);
+    input.addEventListener("change", () => {
+      const value = Math.round(Number(input.value));
+      const next = { ...typeLeads(), [type]: Number.isFinite(value) ? Math.min(60, Math.max(0, value)) : defaultTypeLeads[type] };
+      input.value = String(next[type]);
+      try {
+        window.localStorage.setItem(typeLeadsStorageKey, JSON.stringify(next));
+      } catch {
+        // Remembering the choice is a convenience only.
+      }
+    });
+    const name = document.createElement("span");
+    name.textContent = eventTypeName(type);
+    label.append(name, input, " s");
+    return label;
+  }));
+}
+
+// Tag screen: delete every pass sequence on this video shorter than a chosen number of passes.
+function renderPassCleanup() {
+  const sequences = state.tags.filter((tag) => tag.eventType === "pass_sequence");
+  $("#passCleanup").hidden = !sequences.length;
+  if (!sequences.length) return;
+  const below = Number($("#passCleanupMin").value) || defaultMinPasses;
+  const short = sequences.filter((tag) => (tag.passCount || 0) < below);
+  $("#passCleanupCount").textContent = `${plural(short.length, "sequence")} on this video`;
+  $("#passCleanupButton").disabled = !short.length;
+}
+
+function deleteShortSequences() {
+  const below = Number($("#passCleanupMin").value) || defaultMinPasses;
+  deleteMoments(state.tags.filter((tag) => tag.eventType === "pass_sequence" && (tag.passCount || 0) < below), `pass sequences under ${below} passes`);
+}
+
 function markOffsetSeconds() {
   const value = Number($("#markOffset").value);
   return markOffsetChoices.includes(value) ? value : 0;
@@ -3347,9 +3491,9 @@ async function markMoment(eventType = "", extra = {}) {
   if (typeof eventType !== "string") eventType = "";
   if (!state.playerReady || !state.player) return;
   // Marking anything else ends a pass chain.
-  state.passChainId = null;
+  closeVideoChain();
   try {
-    const offset = markOffsetSeconds();
+    const offset = typeLeadSeconds(eventType) ?? markOffsetSeconds();
     const timestampSeconds = Math.max(0, await state.player.getCurrentTime() - offset);
     const tag = {
       id: crypto.randomUUID(),
@@ -4130,6 +4274,11 @@ $("#clipFilterType").addEventListener("change", () => {
   const record = currentWatchRecord();
   if (record) renderWatchEvents(record);
 });
+$("#clipFilterPasses").addEventListener("change", () => {
+  state.clipFilterPasses = Number($("#clipFilterPasses").value) || 0;
+  const record = currentWatchRecord();
+  if (record) renderWatchEvents(record);
+});
 $("#clipFilterPlayer").addEventListener("change", () => {
   state.clipFilterPlayer = $("#clipFilterPlayer").value;
   const record = currentWatchRecord();
@@ -4203,6 +4352,13 @@ $("#markOffset").addEventListener("change", () => {
 });
 
 state.quickTypes = loadQuickTypes();
+setMinPasses(minPasses());
+renderTypeLeads();
+for (const selector of ["#minPasses", "#liveMinPasses"]) {
+  $(selector).addEventListener("change", () => setMinPasses($(selector).value));
+}
+$("#passCleanupMin").addEventListener("change", renderPassCleanup);
+$("#passCleanupButton").addEventListener("click", deleteShortSequences);
 renderQuickBar();
 renderQuickTypeChoices();
 try {
@@ -4753,9 +4909,18 @@ function withMatchClock(tags) {
     : tag));
 }
 
-function liveTag(eventType, extra = {}) {
-  const at = liveClock.now();
+// The time a live moment is saved at: the tap, less this type's seconds before (never before kick-off,
+// or before the second-half kick-off once the second half has started).
+function liveTimeFor(tapAt, eventType) {
   const live = state.live;
+  const lead = typeLeadSeconds(eventType) ?? 0;
+  return Math.max(live.secondHalfAt ?? live.kickoffAt, tapAt - lead * 1000);
+}
+
+function liveTag(eventType, extra = {}) {
+  const tapAt = liveClock.now();
+  const live = state.live;
+  const at = extra.liveAnchor || markerTypes.has(eventType) ? tapAt : liveTimeFor(tapAt, eventType);
   const tag = {
     id: crypto.randomUUID(),
     timestampSeconds: Math.max(0, Math.round(liveMatchSeconds(at) * 10) / 10),
@@ -4767,6 +4932,7 @@ function liveTag(eventType, extra = {}) {
     note: "",
     done: false,
     liveAt: at,
+    liveTapAt: tapAt,
     liveHalf: live.secondHalfAt ? 2 : 1,
     ...extra,
   };
@@ -5059,7 +5225,7 @@ function startLiveMatch(event) {
 function liveMark(eventType) {
   if (!liveRunning()) return null;
   // Anything else happening ends a pass chain.
-  state.live.chainId = null;
+  closeLiveChain();
   const tag = addLiveTag(liveTag(eventType));
   notifyLive(`${isComplete(tag) ? tagEventLabel(tag) : "Moment"} at ${formatTime(liveMatchSeconds(tag.liveAt))}.`, "success");
   return tag;
@@ -5082,12 +5248,29 @@ function liveCountPass(step) {
   liveChanged([chain.id]);
 }
 
+// Ends the chain. One shorter than the minimum is not kept.
+function closeLiveChain() {
+  const live = state.live;
+  if (!live) return null;
+  const chain = live.tags.find((tag) => tag.id === live.chainId);
+  live.chainId = null;
+  if (!chain) return null;
+  const min = minPasses();
+  if (min && chain.passCount < min) {
+    live.tags = live.tags.filter((tag) => tag.id !== chain.id);
+    if (live.lastId === chain.id) live.lastId = null;
+    liveChanged([chain.id]);
+    return { chain, dropped: true, min };
+  }
+  return { chain, dropped: false, min };
+}
+
 function liveStopPasses() {
-  const chain = state.live?.tags.find((tag) => tag.id === state.live.chainId);
-  if (!chain) return;
-  state.live.chainId = null;
+  const closed = closeLiveChain();
+  if (!closed) return;
   renderLive();
-  notifyLive(`Pass sequence: ${passCountText(chain)}.`, "success");
+  const { chain, dropped, min } = closed;
+  notifyLive(dropped ? `Pass sequence of ${passCountText(chain)} not kept (minimum ${min}).` : `Pass sequence: ${passCountText(chain)}.`, "success");
 }
 
 function liveTogglePlayer(playerId) {
@@ -5113,7 +5296,7 @@ function liveHalfTime() {
   if (!liveRunning() || live.secondHalfAt) return;
   if (!live.halfTimeAt) {
     if (!window.confirm("Half-time now? The clock stops until you start the second half.")) return;
-    live.chainId = null;
+    closeLiveChain();
     const tag = liveTag("half_time", { done: true });
     live.halfTimeAt = tag.liveAt;
     addLiveTag(tag, { last: false });
@@ -5131,8 +5314,8 @@ function liveEnd() {
   if (!liveRunning() || !window.confirm("End the match? You can't add more live moments after this.")) return;
   const tag = liveTag("end_of_game", { done: true });
   live.endedAt = tag.liveAt;
+  closeLiveChain();
   live.lastId = null;
-  live.chainId = null;
   clearInterval(state.liveTicker);
   state.liveTicker = null;
   releaseScreen();
@@ -5223,6 +5406,11 @@ function setLiveType(eventType, customEventType) {
   tag.eventType = eventType;
   tag.customEventType = customEventType;
   tag.done = isComplete(tag);
+  // The time follows the type: e.g. a Goal picked from More types moves to 15 seconds before the tap.
+  if (typeof tag.liveTapAt === "number") {
+    tag.liveAt = liveTimeFor(tag.liveTapAt, eventType);
+    tag.timestampSeconds = Math.max(0, Math.round(liveMatchSeconds(tag.liveAt) * 10) / 10);
+  }
   state.liveTypeTargetId = "";
   liveChanged([tag.id]);
   notifyLive(`${tagEventLabel(tag)} at ${formatTime(liveMatchSeconds(tag.liveAt))}.`, "success");

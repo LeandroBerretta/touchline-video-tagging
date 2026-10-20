@@ -295,7 +295,33 @@
                 <label class="option-row" for="pauseOnMark"><input id="pauseOnMark" type="checkbox"> Pause the video each time I mark a moment</label>
                 <p class="form-hint">Quick types: tick up to nine. They get the keys Q W E R T Y U I O in the order you tick them (new ones go last), and show as buttons above and on new moments. Remembered on this device.</p>
                 <div id="quickTypeChoices" class="quick-type-choices"></div>
+                <label class="option-row" for="minPasses">Keep pass sequences of at least
+                  <select id="minPasses">
+                    <option value="0">any length</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5</option>
+                    <option value="6">6</option>
+                  </select>
+                  passes</label>
+                <p class="form-hint">Shorter chains are dropped when they end (live and on video). Remembered on this device.</p>
+                <p class="form-hint">Seconds before, by type: these moments are saved this long before you press, live and on video, so their clips show the build-up. Other types use the Mark setting when tagging video.</p>
+                <div id="typeLeads" class="type-leads"></div>
               </details>
+              <div id="passCleanup" class="pass-cleanup" hidden>
+                <label for="passCleanupMin">Pass sequences under
+                  <select id="passCleanupMin">
+                    <option value="2">2</option>
+                    <option value="3" selected>3</option>
+                    <option value="4">4</option>
+                    <option value="5">5</option>
+                    <option value="6">6</option>
+                  </select>
+                  passes:</label>
+                <span id="passCleanupCount"></span>
+                <button id="passCleanupButton" class="delete-all" type="button">Delete them</button>
+              </div>
               <div class="tag-view-switch" role="group" aria-label="Show moments">
                 <button id="tagViewMatch" class="view-switch-button" type="button" aria-pressed="true">Match order</button>
                 <button id="tagViewGroups" class="view-switch-button" type="button" aria-pressed="false">To do &amp; Done</button>
@@ -329,6 +355,15 @@
             <label for="liveTeam">Team</label>
             <select id="liveTeam"></select>
           </div>
+          <label for="liveMinPasses">Keep pass chains of at least</label>
+          <select id="liveMinPasses">
+            <option value="0">any length</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5</option>
+                    <option value="6">6</option>
+          </select>
           <ol class="live-steps">
             <li>Start the camera whenever you like. It doesn't need to match.</li>
             <li>Press <strong>Start match</strong> on the kick-off whistle.</li>
@@ -613,6 +648,9 @@
                   </select>
                   <select id="clipFilterPlayer" aria-label="Show one player's events">
                     <option value="">All players</option>
+                  </select>
+                  <select id="clipFilterPasses" aria-label="Show pass sequences of at least this many passes" hidden>
+                    <option value="0">Any passes</option>
                   </select>
                 </div>
                 <button id="selectAllTypesButton" class="link-button" type="button">Select all</button>
